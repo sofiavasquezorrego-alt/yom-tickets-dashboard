@@ -261,14 +261,11 @@ try:
                     suffixes=('', '_real')
                 )
                 
-                # Usar resolution_hours real si está disponible, sino usar el calculado
-                df['resolution_time'] = df.apply(
-                    lambda row: row['resolution_hours'] if pd.notna(row.get('resolution_hours')) 
-                               else row.get('resolution_time'),
-                    axis=1
-                )
+                # SOLO usar resolution_hours de la planilla (no usar Freshdesk)
+                # Si no está en la planilla, dejar como None
+                df['resolution_time'] = df['resolution_hours'].where(pd.notna(df['resolution_hours']), None)
                 
-                # Recalcular sla_met con el tiempo real
+                # Recalcular sla_met SOLO para tickets que están en la planilla
                 df['sla_met'] = df.apply(
                     lambda row: (row['resolution_time'] <= row['sla_hours']) 
                                 if pd.notna(row.get('resolution_time'))
@@ -276,7 +273,13 @@ try:
                     axis=1
                 )
                 
-                st.sidebar.success(f"✅ SLA real cargado: {len(sla_df)} tickets")
+                tickets_with_sla = len(df[df['resolution_time'].notna()])
+                st.sidebar.success(f"✅ SLA real: {tickets_with_sla} tickets en planilla")
+                
+                # Mostrar advertencia si hay tickets cerrados sin SLA
+                tickets_closed_no_sla = len(df[(df['status'].isin([4, 5])) & (df['resolution_time'].isna())])
+                if tickets_closed_no_sla > 0:
+                    st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA en planilla")
             else:
                 st.sidebar.info("ℹ️ Planilla de SLA vacía")
         except Exception as e:
