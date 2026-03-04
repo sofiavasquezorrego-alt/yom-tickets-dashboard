@@ -9,13 +9,33 @@ import json
 import os
 from pathlib import Path
 
-# Importar integración con Google Sheets
-try:
-    from sheets_integration import read_sla_sheet
-    SHEETS_AVAILABLE = True
-except ImportError as e:
-    SHEETS_AVAILABLE = False
-    # No mostrar warning acá, se mostrará en el sidebar después
+# Google Sheets - leer CSV público directo (no requiere API)
+SPREADSHEET_ID = "1HhU0jGyrUE9KNLj3VaZivOeQkwRj_zOQaHMMAWwLMx8"
+SLA_GID = "1232697974"
+
+@st.cache_data(ttl=300)
+def load_sla_from_sheet():
+    """Cargar SLA desde la planilla pública (CSV)"""
+    try:
+        url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={SLA_GID}"
+        df = pd.read_csv(url, skiprows=1, names=['ticket_id', 'created_at', 'closed_at', 'resolution_time_str'])
+        
+        # Convertir tiempo "HH:MM:SS" a horas decimales
+        def parse_time(time_str):
+            try:
+                parts = str(time_str).split(':')
+                return int(parts[0]) + (int(parts[1]) / 60.0)
+            except:
+                return None
+        
+        df['resolution_hours'] = df['resolution_time_str'].apply(parse_time)
+        df = df.dropna(subset=['ticket_id', 'resolution_hours'])
+        df['ticket_id'] = df['ticket_id'].astype(int)
+        
+        return df[['ticket_id', 'resolution_hours']]
+    except Exception as e:
+        st.sidebar.error(f"❌ Error leyendo planilla: {str(e)}")
+        return pd.DataFrame()
 
 # Configuración de página
 st.set_page_config(
@@ -246,50 +266,38 @@ try:
     tickets_raw = fetch_tickets(days_back)
     df = process_tickets(tickets_raw)
     
-    # Cargar SLA real desde Google Sheets (SOLO para tiempos de resolución)
-    # TODO lo demás (prioridad, estado, cliente) viene de Freshdesk
-    if SHEETS_AVAILABLE:
-        try:
-            sla_df = read_sla_sheet()
-            
-            if not sla_df.empty:
-                # Hacer merge SOLO con resolution_hours
-                # NO sobrescribir prioridad, estado, cliente, etc.
-                df = df.merge(
-                    sla_df[['ticket_id', 'resolution_hours']],
-                    left_on='id',
-                    right_on='ticket_id',
-                    how='left',
-                    suffixes=('_freshdesk', '_planilla')
-                )
-                
-                # SOLO usar resolution_hours de la planilla (no usar Freshdesk)
-                # Si no está en la planilla, dejar como None
-                df['resolution_time'] = df['resolution_hours'].where(pd.notna(df['resolution_hours']), None)
-                
-                # Recalcular sla_met SOLO para tickets que están en la planilla
-                df['sla_met'] = df.apply(
-                    lambda row: (row['resolution_time'] <= row['sla_hours']) 
-                                if pd.notna(row.get('resolution_time'))
-                                else None,
-                    axis=1
-                )
-                
-                tickets_with_sla = len(df[df['resolution_time'].notna()])
-                st.sidebar.success(f"✅ SLA de planilla: {tickets_with_sla} tickets")
-                
-                # Mostrar advertencia si hay tickets cerrados sin SLA
-                tickets_closed_no_sla = len(df[(df['status'].isin([4, 5])) & (df['resolution_time'].isna())])
-                if tickets_closed_no_sla > 0:
-                    st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA")
-            else:
-                st.sidebar.info("ℹ️ Planilla de SLA vacía")
-        except Exception as e:
-            st.sidebar.error(f"❌ Error leyendo planilla: {str(e)}")
-            import traceback
-            st.sidebar.code(traceback.format_exc())
+    # Cargar SLA real desde planilla (SOLO para tiempos de resolución)
+    sla_df = load_sla_from_sheet()
+    
+    if not sla_df.empty:
+        # Merge con la planilla (SOLO resolution_hours)
+        df = df.merge(
+            sla_df,
+            left_on='id',
+            right_on='ticket_id',
+            how='left',
+            suffixes=('_freshdesk', '_planilla')
+        )
+        
+        # Usar resolution_hours de la planilla si existe
+        df['resolution_time'] = df['resolution_hours'].where(pd.notna(df['resolution_hours']), None)
+        
+        # Recalcular sla_met
+        df['sla_met'] = df.apply(
+            lambda row: (row['resolution_time'] <= row['sla_hours']) 
+                        if pd.notna(row.get('resolution_time'))
+                        else None,
+            axis=1
+        )
+        
+        tickets_with_sla = len(df[df['resolution_time'].notna()])
+        st.sidebar.success(f"✅ SLA de planilla: {tickets_with_sla} tickets")
+        
+        tickets_closed_no_sla = len(df[(df['status'].isin([4, 5])) & (df['resolution_time'].isna())])
+        if tickets_closed_no_sla > 0:
+            st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA")
     else:
-        st.sidebar.warning("⚠️ Google Sheets no disponible")
+        st.sidebar.warning("⚠️ No se pudo cargar planilla de SLA")
     
 except Exception as e:
     st.error(f"Error cargando tickets: {str(e)}")
