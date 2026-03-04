@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import requests
 import json
 import os
@@ -48,7 +48,7 @@ def freshdesk_request(endpoint, params=None):
 @st.cache_data(ttl=300)
 def fetch_tickets(days_back=90):
     """Obtener todos los tickets de los últimos N días"""
-    cutoff = datetime.now() - timedelta(days=days_back)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
     cutoff_str = cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')
     
     all_tickets = []
@@ -119,7 +119,13 @@ def process_tickets(tickets):
     df['sla_hours'] = df['priority_name'].map(sla_map)
     
     # Calcular tiempo transcurrido (simplificado - asume 24/7 por ahora)
-    now = datetime.now()
+    # Convertir 'now' a timezone-aware para evitar errores
+    now = datetime.now(timezone.utc)
+    
+    # Asegurar que created_at sea timezone-aware
+    if df['created_at'].dt.tz is None:
+        df['created_at'] = df['created_at'].dt.tz_localize('UTC')
+    
     df['elapsed_hours'] = (now - df['created_at']).dt.total_seconds() / 3600
     
     # SLA restante
@@ -206,7 +212,7 @@ if 'requester_id' in filtered_df.columns:
 
 # Información de última actualización
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Última actualización: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+st.sidebar.caption(f"Última actualización: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
 st.sidebar.caption(f"Total tickets cargados: {len(df)}")
 
 # --- MÉTRICAS PRINCIPALES ---
@@ -392,7 +398,7 @@ with tab4:
     st.download_button(
         label="📥 Descargar CSV",
         data=csv,
-        file_name=f"tickets_{datetime.now().strftime('%Y%m%d')}.csv",
+        file_name=f"tickets_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv",
         mime="text/csv"
     )
 
