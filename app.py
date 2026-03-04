@@ -484,13 +484,26 @@ with tab2:
             'sla_met': ['sum', 'count']
         })
         sla_by_priority.columns = ['Cumplidos', 'Total']
-        # Asegurar que sean numéricos antes de calcular
-        sla_by_priority['Cumplidos'] = pd.to_numeric(sla_by_priority['Cumplidos'], errors='coerce').fillna(0)
-        sla_by_priority['Total'] = pd.to_numeric(sla_by_priority['Total'], errors='coerce').fillna(0)
         
-        # Evitar división por cero
-        sla_by_priority['% Cumplimiento'] = (sla_by_priority['Cumplidos'] / sla_by_priority['Total'] * 100).round(1)
-        sla_by_priority['% Cumplimiento'] = sla_by_priority['% Cumplimiento'].fillna(0)
+        # Debug: Mostrar dtypes antes de la operación crítica
+        st.write("DEBUG: dtypes antes del cálculo de % Cumplimiento:")
+        st.write(sla_by_priority.dtypes)
+
+        # Asegurar que sean numéricos de forma explícita
+        sla_by_priority['Cumplidos'] = pd.to_numeric(sla_by_priority['Cumplidos'], errors='coerce').fillna(0).astype(float)
+        sla_by_priority['Total'] = pd.to_numeric(sla_by_priority['Total'], errors='coerce').fillna(0).astype(float)
+        
+        # Debug: Mostrar dtypes después de la conversión explícita
+        st.write("DEBUG: dtypes después del cálculo de % Cumplimiento:")
+        st.write(sla_by_priority.dtypes)
+
+        # Evitar división por cero y calcular
+        # Usar .loc para evitar SettingWithCopyWarning
+        sla_by_priority.loc[sla_by_priority['Total'] == 0, '% Cumplimiento'] = 0
+        sla_by_priority.loc[sla_by_priority['Total'] != 0, '% Cumplimiento'] = (sla_by_priority['Cumplidos'] / sla_by_priority['Total'] * 100).round(1)
+
+        # Asegurar que % Cumplimiento sea numérico y fillna(0) si es NaN
+        sla_by_priority['% Cumplimiento'] = pd.to_numeric(sla_by_priority['% Cumplimiento'], errors='coerce').fillna(0).astype(float)
         sla_by_priority = sla_by_priority.sort_values('% Cumplimiento', ascending=False)
         
         # Mostrar en columnas
