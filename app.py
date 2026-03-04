@@ -9,6 +9,14 @@ import json
 import os
 from pathlib import Path
 
+# Importar integración con Google Sheets
+try:
+    from sheets_integration import read_sla_sheet
+    SHEETS_AVAILABLE = True
+except ImportError:
+    SHEETS_AVAILABLE = False
+    st.warning("⚠️ Integración con Google Sheets no disponible. Usando tiempos de Freshdesk.")
+
 # Configuración de página
 st.set_page_config(
     page_title="Dashboard de Tickets - Yom",
@@ -237,6 +245,43 @@ else:
 try:
     tickets_raw = fetch_tickets(days_back)
     df = process_tickets(tickets_raw)
+    
+    # Cargar SLA real desde Google Sheets
+    if SHEETS_AVAILABLE:
+        try:
+            sla_df = read_sla_sheet()
+            
+            if not sla_df.empty:
+                # Hacer merge con los tiempos reales
+                df = df.merge(
+                    sla_df[['ticket_id', 'resolution_hours']],
+                    left_on='id',
+                    right_on='ticket_id',
+                    how='left',
+                    suffixes=('', '_real')
+                )
+                
+                # Usar resolution_hours real si está disponible, sino usar el calculado
+                df['resolution_time'] = df.apply(
+                    lambda row: row['resolution_hours'] if pd.notna(row.get('resolution_hours')) 
+                               else row.get('resolution_time'),
+                    axis=1
+                )
+                
+                # Recalcular sla_met con el tiempo real
+                df['sla_met'] = df.apply(
+                    lambda row: (row['resolution_time'] <= row['sla_hours']) 
+                                if pd.notna(row.get('resolution_time'))
+                                else None,
+                    axis=1
+                )
+                
+                st.sidebar.success(f"✅ SLA real cargado: {len(sla_df)} tickets")
+            else:
+                st.sidebar.info("ℹ️ Planilla de SLA vacía")
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ Error cargando SLA real: {str(e)}")
+    
 except Exception as e:
     st.error(f"Error cargando tickets: {str(e)}")
     st.info("Verifica que los Secrets estén configurados correctamente en Settings → Secrets")
