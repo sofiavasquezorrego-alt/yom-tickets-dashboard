@@ -13,9 +13,9 @@ from pathlib import Path
 try:
     from sheets_integration import read_sla_sheet
     SHEETS_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     SHEETS_AVAILABLE = False
-    st.warning("⚠️ Integración con Google Sheets no disponible. Usando tiempos de Freshdesk.")
+    # No mostrar warning acá, se mostrará en el sidebar después
 
 # Configuración de página
 st.set_page_config(
@@ -246,19 +246,21 @@ try:
     tickets_raw = fetch_tickets(days_back)
     df = process_tickets(tickets_raw)
     
-    # Cargar SLA real desde Google Sheets
+    # Cargar SLA real desde Google Sheets (SOLO para tiempos de resolución)
+    # TODO lo demás (prioridad, estado, cliente) viene de Freshdesk
     if SHEETS_AVAILABLE:
         try:
             sla_df = read_sla_sheet()
             
             if not sla_df.empty:
-                # Hacer merge con los tiempos reales
+                # Hacer merge SOLO con resolution_hours
+                # NO sobrescribir prioridad, estado, cliente, etc.
                 df = df.merge(
                     sla_df[['ticket_id', 'resolution_hours']],
                     left_on='id',
                     right_on='ticket_id',
                     how='left',
-                    suffixes=('', '_real')
+                    suffixes=('_freshdesk', '_planilla')
                 )
                 
                 # SOLO usar resolution_hours de la planilla (no usar Freshdesk)
@@ -274,16 +276,20 @@ try:
                 )
                 
                 tickets_with_sla = len(df[df['resolution_time'].notna()])
-                st.sidebar.success(f"✅ SLA real: {tickets_with_sla} tickets en planilla")
+                st.sidebar.success(f"✅ SLA de planilla: {tickets_with_sla} tickets")
                 
                 # Mostrar advertencia si hay tickets cerrados sin SLA
                 tickets_closed_no_sla = len(df[(df['status'].isin([4, 5])) & (df['resolution_time'].isna())])
                 if tickets_closed_no_sla > 0:
-                    st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA en planilla")
+                    st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA")
             else:
                 st.sidebar.info("ℹ️ Planilla de SLA vacía")
         except Exception as e:
-            st.sidebar.warning(f"⚠️ Error cargando SLA real: {str(e)}")
+            st.sidebar.error(f"❌ Error leyendo planilla: {str(e)}")
+            import traceback
+            st.sidebar.code(traceback.format_exc())
+    else:
+        st.sidebar.warning("⚠️ Google Sheets no disponible")
     
 except Exception as e:
     st.error(f"Error cargando tickets: {str(e)}")
