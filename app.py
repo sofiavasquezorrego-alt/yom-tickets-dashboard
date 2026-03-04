@@ -57,7 +57,11 @@ def get_contact_name(requester_id):
 # Cache de datos (5 minutos)
 @st.cache_data(ttl=300)
 def fetch_tickets(days_back=90):
-    """Obtener todos los tickets de los últimos N días con stats"""
+    """
+    Obtener todos los tickets con stats.
+    Nota: Freshdesk API no permite filtrar por created_at directamente,
+    así que traemos con updated_since y filtramos después por created_at.
+    """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
     cutoff_str = cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')
     
@@ -248,12 +252,16 @@ if df.empty:
     st.warning("No hay tickets en el período seleccionado.")
     st.stop()
 
-# Filtro de fecha personalizado
+# Filtro por fecha de creación según el período seleccionado
 if date_range == "Personalizado":
     df = df[
         (df['created_at'].dt.date >= start_date) &
         (df['created_at'].dt.date <= end_date)
     ]
+else:
+    # Para períodos predefinidos, filtrar por created_at
+    cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+    df = df[df['created_at'] >= cutoff_date]
 
 # Filtros adicionales
 priorities = ['Todas'] + sorted(df['priority_name'].dropna().unique().tolist())
@@ -283,7 +291,7 @@ if 'client_name' in filtered_df.columns:
 # Información de última actualización
 st.sidebar.markdown("---")
 st.sidebar.caption(f"Última actualización: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
-st.sidebar.caption(f"Total tickets cargados: {len(df)}")
+st.sidebar.caption(f"Tickets creados en el período: {len(df)}")
 
 # --- MÉTRICAS PRINCIPALES ---
 
@@ -370,6 +378,9 @@ with tab1:
 with tab2:
     st.subheader("⏱️ Análisis de SLA")
     
+    # Información del período
+    st.info(f"📅 Analizando tickets CREADOS en el período seleccionado ({date_range}). Total: {len(filtered_df)} tickets.")
+    
     # SLA Compliance histórico (todos los tickets cerrados/resueltos en el período)
     closed_tickets = filtered_df[filtered_df['status'].isin([4, 5])]
     
@@ -384,7 +395,7 @@ with tab2:
             st.metric(
                 "✅ SLA Compliance (Período)", 
                 f"{sla_compliance_historical:.1f}%",
-                help=f"Basado en {sla_total_closed} tickets cerrados en el período"
+                help=f"Basado en {sla_total_closed} tickets cerrados/resueltos que fueron CREADOS en el período seleccionado"
             )
         
         with col2:
