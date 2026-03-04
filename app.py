@@ -18,23 +18,31 @@ def load_sla_from_sheet():
     """Cargar SLA desde la planilla pública (CSV)"""
     try:
         url = f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/export?format=csv&gid={SLA_GID}"
-        df = pd.read_csv(url, skiprows=1, names=['ticket_id', 'created_at', 'closed_at', 'resolution_time_str'])
+        # Leer CSV, ignorando líneas que empiezan con #
+        df = pd.read_csv(url, comment='#')
+        
+        # Las columnas vienen del header del CSV
+        # Renombrar para que sean consistentes
+        df.columns = ['ticket_id', 'created_at', 'closed_at', 'resolution_time_str']
         
         # Convertir tiempo "HH:MM:SS" a horas decimales
         def parse_time(time_str):
             try:
-                parts = str(time_str).split(':')
+                parts = str(time_str).strip().split(':')
                 return int(parts[0]) + (int(parts[1]) / 60.0)
             except:
                 return None
         
         df['resolution_hours'] = df['resolution_time_str'].apply(parse_time)
         df = df.dropna(subset=['ticket_id', 'resolution_hours'])
-        df['ticket_id'] = df['ticket_id'].astype(int)
+        df['ticket_id'] = pd.to_numeric(df['ticket_id'], errors='coerce').astype('Int64')
+        df = df.dropna(subset=['ticket_id'])
         
         return df[['ticket_id', 'resolution_hours']]
     except Exception as e:
         st.sidebar.error(f"❌ Error leyendo planilla: {str(e)}")
+        import traceback
+        st.sidebar.code(traceback.format_exc())
         return pd.DataFrame()
 
 # Configuración de página
@@ -267,9 +275,12 @@ try:
     df = process_tickets(tickets_raw)
     
     # Cargar SLA real desde planilla (SOLO para tiempos de resolución)
+    st.sidebar.info("🔄 Cargando SLA de planilla...")
     sla_df = load_sla_from_sheet()
     
     if not sla_df.empty:
+        st.sidebar.success(f"✅ Planilla cargada: {len(sla_df)} tickets con SLA")
+        
         # Merge con la planilla (SOLO resolution_hours)
         df = df.merge(
             sla_df,
@@ -279,10 +290,10 @@ try:
             suffixes=('_freshdesk', '_planilla')
         )
         
-        # Usar resolution_hours de la planilla si existe
+        # Usar resolution_hours de la planilla si existe, sino dejar None
         df['resolution_time'] = df['resolution_hours'].where(pd.notna(df['resolution_hours']), None)
         
-        # Recalcular sla_met
+        # Recalcular sla_met SOLO para tickets que tienen resolution_time
         df['sla_met'] = df.apply(
             lambda row: (row['resolution_time'] <= row['sla_hours']) 
                         if pd.notna(row.get('resolution_time'))
@@ -290,14 +301,19 @@ try:
             axis=1
         )
         
+        # Contar tickets en el período actual con SLA de planilla
         tickets_with_sla = len(df[df['resolution_time'].notna()])
-        st.sidebar.success(f"✅ SLA de planilla: {tickets_with_sla} tickets")
+        st.sidebar.info(f"📊 Tickets del período con SLA: {tickets_with_sla}")
         
+        # Advertir si hay tickets cerrados sin SLA en planilla
         tickets_closed_no_sla = len(df[(df['status'].isin([4, 5])) & (df['resolution_time'].isna())])
         if tickets_closed_no_sla > 0:
-            st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA")
+            st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA en planilla")
     else:
-        st.sidebar.warning("⚠️ No se pudo cargar planilla de SLA")
+        st.sidebar.error("❌ No se pudo cargar planilla de SLA")
+        # Si falla, no hay resolution_time, así que todo será None
+        df['resolution_time'] = None
+        df['sla_met'] = None
     
 except Exception as e:
     st.error(f"Error cargando tickets: {str(e)}")
