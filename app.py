@@ -13,7 +13,7 @@ from pathlib import Path
 SPREADSHEET_ID = "1HhU0jGyrUE9KNLj3VaZivOeQkwRj_zOQaHMMAWwLMx8"
 SLA_GID = "1232697974"
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_sla_from_sheet():
     """Cargar SLA desde la planilla pública (CSV)"""
     try:
@@ -40,9 +40,10 @@ def load_sla_from_sheet():
         
         return df[['ticket_id', 'resolution_hours']]
     except Exception as e:
-        st.sidebar.error(f"❌ Error leyendo planilla: {str(e)}")
+        # Mostrar error en la página principal
+        st.error(f"❌ Error leyendo planilla: {str(e)}")
         import traceback
-        st.sidebar.code(traceback.format_exc())
+        st.code(traceback.format_exc())
         return pd.DataFrame()
 
 # Configuración de página
@@ -275,11 +276,11 @@ try:
     df = process_tickets(tickets_raw)
     
     # Cargar SLA real desde planilla (SOLO para tiempos de resolución)
-    st.sidebar.info("🔄 Cargando SLA de planilla...")
+    st.info("🔄 Cargando SLA de planilla...")
     sla_df = load_sla_from_sheet()
     
     if not sla_df.empty:
-        st.sidebar.success(f"✅ Planilla cargada: {len(sla_df)} tickets con SLA")
+        st.success(f"✅ Planilla cargada: {len(sla_df)} tickets con SLA")
         
         # Merge con la planilla (SOLO resolution_hours)
         df = df.merge(
@@ -303,14 +304,14 @@ try:
         
         # Contar tickets en el período actual con SLA de planilla
         tickets_with_sla = len(df[df['resolution_time'].notna()])
-        st.sidebar.info(f"📊 Tickets del período con SLA: {tickets_with_sla}")
+        st.info(f"📊 Tickets del período con SLA de planilla: {tickets_with_sla}")
         
         # Advertir si hay tickets cerrados sin SLA en planilla
         tickets_closed_no_sla = len(df[(df['status'].isin([4, 5])) & (df['resolution_time'].isna())])
         if tickets_closed_no_sla > 0:
-            st.sidebar.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA en planilla")
+            st.warning(f"⚠️ {tickets_closed_no_sla} tickets cerrados sin SLA en planilla")
     else:
-        st.sidebar.error("❌ No se pudo cargar planilla de SLA")
+        st.error("❌ No se pudo cargar planilla de SLA")
         # Si falla, no hay resolution_time, así que todo será None
         df['resolution_time'] = None
         df['sla_met'] = None
