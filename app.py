@@ -57,7 +57,7 @@ def get_contact_name(requester_id):
 # Cache de datos (5 minutos)
 @st.cache_data(ttl=300)
 def fetch_tickets(days_back=90):
-    """Obtener todos los tickets de los últimos N días"""
+    """Obtener todos los tickets de los últimos N días con stats"""
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
     cutoff_str = cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')
     
@@ -72,7 +72,8 @@ def fetch_tickets(days_back=90):
                     params={
                         'updated_since': cutoff_str,
                         'per_page': 100,
-                        'page': page
+                        'page': page,
+                        'include': 'stats'
                     }
                 )
                 
@@ -150,18 +151,31 @@ def process_tickets(tickets):
         axis=1
     )
     
-    # Tiempo de resolución (para tickets cerrados/resueltos) - solo hasta que se cerró
-    # Para tickets cerrados/resueltos, usar updated_at como aproximación de cuándo se cerró
+    # Extraer stats.resolved_at si existe
+    if 'stats' in df.columns:
+        df['resolved_at'] = df['stats'].apply(
+            lambda x: x.get('resolved_at') if isinstance(x, dict) else None
+        )
+        df['resolved_at'] = pd.to_datetime(df['resolved_at'], errors='coerce')
+        
+        # Asegurar timezone-aware
+        if df['resolved_at'].dt.tz is None:
+            df['resolved_at'] = df['resolved_at'].dt.tz_localize('UTC', nonexistent='shift_forward', ambiguous='NaT')
+    else:
+        df['resolved_at'] = None
+    
+    # Tiempo de resolución (solo para tickets con resolved_at)
     df['resolution_time'] = df.apply(
-        lambda row: (row['updated_at'] - row['created_at']).total_seconds() / 3600 
-                    if row['status'] in [4, 5] else None,
+        lambda row: (row['resolved_at'] - row['created_at']).total_seconds() / 3600 
+                    if row['status'] in [4, 5] and pd.notna(row.get('resolved_at')) 
+                    else None,
         axis=1
     )
     
-    # Calcular SLA compliance histórico
+    # Calcular SLA compliance histórico (solo si tenemos resolution_time)
     df['sla_met'] = df.apply(
         lambda row: (row['resolution_time'] <= row['sla_hours']) 
-                    if row['status'] in [4, 5] and row['resolution_time'] is not None 
+                    if pd.notna(row.get('resolution_time'))
                     else None,
         axis=1
     )
@@ -358,7 +372,11 @@ with tab2:
             # SLA por prioridad
             sla_by_priority = closed_tickets.groupby('priority_name')['sla_met'].mean() * 100
             avg_priority_sla = sla_by_priority.mean()
-            st.metric("📊 SLA Promedio por Prioridad", f"{avg_priority_sla:.1f}%")
+            st.metric(
+                "📊 SLA Promedio por Prioridad", 
+                f"{avg_priority_sla:.1f}%",
+                help="Promedio de % de cumplimiento de SLA entre todas las prioridades"
+            )
         
         with col3:
             # Tickets abiertos en riesgo
