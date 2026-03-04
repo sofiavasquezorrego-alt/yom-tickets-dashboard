@@ -159,8 +159,13 @@ else:
     days_back = (datetime.now() - datetime.combine(start_date, datetime.min.time())).days
 
 # Cargar datos
-tickets_raw = fetch_tickets(days_back)
-df = process_tickets(tickets_raw)
+try:
+    tickets_raw = fetch_tickets(days_back)
+    df = process_tickets(tickets_raw)
+except Exception as e:
+    st.error(f"Error cargando tickets: {str(e)}")
+    st.info("Verifica que los Secrets estén configurados correctamente en Settings → Secrets")
+    st.stop()
 
 if df.empty:
     st.warning("No hay tickets en el período seleccionado.")
