@@ -95,11 +95,27 @@ def fetch_tickets(days_back=90):
 
 # Calcular horas hábiles
 def calculate_working_hours(start_date, end_date):
-    """Calcular horas hábiles entre dos fechas"""
+    """
+    Calcular horas hábiles entre dos fechas (L-V, 8 AM - 7 PM Chile)
+    """
+    if pd.isna(start_date) or pd.isna(end_date):
+        return 0
+    
+    if start_date >= end_date:
+        return 0
+    
+    # Asegurar que sean timezone-aware
+    if start_date.tzinfo is None:
+        start_date = start_date.replace(tzinfo=timezone.utc)
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
+    
     hours = 0
     current = start_date
     
+    # Iterar hora por hora
     while current < end_date:
+        # Lunes a Viernes (0-4) y entre 8 AM y 7 PM
         if current.weekday() < 5 and 8 <= current.hour < 19:
             hours += 1
         current += timedelta(hours=1)
@@ -141,7 +157,10 @@ def process_tickets(tickets):
     if df['created_at'].dt.tz is None:
         df['created_at'] = df['created_at'].dt.tz_localize('UTC')
     
-    df['elapsed_hours'] = (now - df['created_at']).dt.total_seconds() / 3600
+    # Calcular horas transcurridas en horas hábiles
+    df['elapsed_hours'] = df['created_at'].apply(
+        lambda x: calculate_working_hours(x, now)
+    )
     
     # SLA restante (solo para tickets abiertos)
     df['sla_remaining'] = df['sla_hours'] - df['elapsed_hours']
@@ -164,9 +183,9 @@ def process_tickets(tickets):
     else:
         df['resolved_at'] = None
     
-    # Tiempo de resolución (solo para tickets con resolved_at)
+    # Tiempo de resolución en horas hábiles (solo para tickets con resolved_at)
     df['resolution_time'] = df.apply(
-        lambda row: (row['resolved_at'] - row['created_at']).total_seconds() / 3600 
+        lambda row: calculate_working_hours(row['created_at'], row['resolved_at'])
                     if row['status'] in [4, 5] and pd.notna(row.get('resolved_at')) 
                     else None,
         axis=1
