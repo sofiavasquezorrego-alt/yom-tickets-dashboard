@@ -424,16 +424,16 @@ with tab2:
                     help=f"{int(row['Cumplidos'])} de {int(row['Total'])} tickets"
                 )
         
-        # SLA Compliance por prioridad
-        st.subheader("📊 SLA Compliance por Prioridad (Período)")
+        # Gráfico de SLA por prioridad
+        st.subheader("📊 Gráfico de Cumplimiento por Prioridad")
         
         if not sla_by_priority.empty:
             fig_sla_priority = px.bar(
                 x=sla_by_priority.index,
-                y=sla_by_priority.values,
+                y=sla_by_priority['% Cumplimiento'],
                 title="% de Cumplimiento de SLA por Prioridad",
                 labels={'x': 'Prioridad', 'y': '% Cumplimiento'},
-                color=sla_by_priority.values,
+                color=sla_by_priority['% Cumplimiento'],
                 color_continuous_scale='RdYlGn',
                 range_color=[0, 100]
             )
