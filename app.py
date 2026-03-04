@@ -389,30 +389,40 @@ with tab2:
         sla_total_closed = len(closed_tickets[closed_tickets['sla_met'].notna()])
         sla_compliance_historical = (sla_met_count / sla_total_closed * 100) if sla_total_closed > 0 else 0
         
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
         
         with col1:
             st.metric(
-                "✅ SLA Compliance (Período)", 
+                "✅ SLA Compliance General", 
                 f"{sla_compliance_historical:.1f}%",
                 help=f"Basado en {sla_total_closed} tickets cerrados/resueltos que fueron CREADOS en el período seleccionado"
             )
         
         with col2:
-            # SLA por prioridad
-            sla_by_priority = closed_tickets.groupby('priority_name')['sla_met'].mean() * 100
-            avg_priority_sla = sla_by_priority.mean()
-            st.metric(
-                "📊 SLA Promedio por Prioridad", 
-                f"{avg_priority_sla:.1f}%",
-                help="Promedio de % de cumplimiento de SLA entre todas las prioridades"
-            )
-        
-        with col3:
             # Tickets abiertos en riesgo
             open_tickets_df = filtered_df[filtered_df['status'].isin([2, 3])]
             in_risk = len(open_tickets_df[open_tickets_df['sla_status'] != 'OK'])
             st.metric("⚠️ Tickets Abiertos en Riesgo", in_risk)
+        
+        # SLA Compliance por prioridad (desglosado)
+        st.subheader("📊 SLA Compliance por Prioridad")
+        
+        sla_by_priority = closed_tickets.groupby('priority_name').agg({
+            'sla_met': ['sum', 'count']
+        })
+        sla_by_priority.columns = ['Cumplidos', 'Total']
+        sla_by_priority['% Cumplimiento'] = (sla_by_priority['Cumplidos'] / sla_by_priority['Total'] * 100).round(1)
+        sla_by_priority = sla_by_priority.sort_values('% Cumplimiento', ascending=False)
+        
+        # Mostrar en columnas
+        priority_cols = st.columns(len(sla_by_priority))
+        for idx, (priority, row) in enumerate(sla_by_priority.iterrows()):
+            with priority_cols[idx]:
+                st.metric(
+                    f"{priority}", 
+                    f"{row['% Cumplimiento']:.1f}%",
+                    help=f"{int(row['Cumplidos'])} de {int(row['Total'])} tickets"
+                )
         
         # SLA Compliance por prioridad
         st.subheader("📊 SLA Compliance por Prioridad (Período)")
