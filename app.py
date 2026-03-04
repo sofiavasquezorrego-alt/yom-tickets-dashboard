@@ -484,7 +484,13 @@ with tab2:
             'sla_met': ['sum', 'count']
         })
         sla_by_priority.columns = ['Cumplidos', 'Total']
+        # Asegurar que sean numéricos antes de calcular
+        sla_by_priority['Cumplidos'] = pd.to_numeric(sla_by_priority['Cumplidos'], errors='coerce').fillna(0)
+        sla_by_priority['Total'] = pd.to_numeric(sla_by_priority['Total'], errors='coerce').fillna(0)
+        
+        # Evitar división por cero
         sla_by_priority['% Cumplimiento'] = (sla_by_priority['Cumplidos'] / sla_by_priority['Total'] * 100).round(1)
+        sla_by_priority['% Cumplimiento'] = sla_by_priority['% Cumplimiento'].fillna(0)
         sla_by_priority = sla_by_priority.sort_values('% Cumplimiento', ascending=False)
         
         # Mostrar en columnas
