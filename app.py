@@ -44,16 +44,6 @@ def freshdesk_request(endpoint, params=None):
     response.raise_for_status()
     return response.json()
 
-# Cache de nombres de clientes
-@st.cache_data(ttl=3600)
-def get_contact_name(requester_id):
-    """Obtener nombre del contacto por ID"""
-    try:
-        contact = freshdesk_request(f'/contacts/{requester_id}')
-        return contact.get('name', f'Cliente {requester_id}')
-    except:
-        return f'Cliente {requester_id}'
-
 # Cache de datos (5 minutos)
 @st.cache_data(ttl=300)
 def fetch_tickets(days_back=90):
@@ -145,9 +135,13 @@ def process_tickets(tickets):
     df['priority_name'] = df['priority'].map(priority_map)
     df['status_name'] = df['status'].map(status_map)
     
-    # Obtener nombres de clientes
-    if 'requester_id' in df.columns:
-        df['client_name'] = df['requester_id'].apply(get_contact_name)
+    # Obtener nombre de empresa desde tags (primer tag es el cliente)
+    if 'tags' in df.columns:
+        df['client_name'] = df['tags'].apply(
+            lambda x: x[0] if isinstance(x, list) and len(x) > 0 else 'Sin cliente'
+        )
+    else:
+        df['client_name'] = 'Sin cliente'
     
     # SLA por prioridad
     sla_map = {'Baja': 40, 'Media': 18, 'Alta': 9, 'Urgente': 9}
