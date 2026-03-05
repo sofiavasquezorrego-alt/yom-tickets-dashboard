@@ -485,18 +485,10 @@ with tab2:
         })
         sla_by_priority.columns = ['Cumplidos', 'Total']
         
-        # Debug: Mostrar dtypes antes de la operación crítica
-        st.write("DEBUG: dtypes antes del cálculo de % Cumplimiento:")
-        st.write(sla_by_priority.dtypes)
-
         # Asegurar que sean numéricos de forma explícita
         sla_by_priority['Cumplidos'] = pd.to_numeric(sla_by_priority['Cumplidos'], errors='coerce').fillna(0).astype(float)
         sla_by_priority['Total'] = pd.to_numeric(sla_by_priority['Total'], errors='coerce').fillna(0).astype(float)
         
-        # Debug: Mostrar dtypes después de la conversión explícita
-        st.write("DEBUG: dtypes después del cálculo de % Cumplimiento:")
-        st.write(sla_by_priority.dtypes)
-
         # Evitar división por cero y calcular
         # Usar .loc para evitar SettingWithCopyWarning
         sla_by_priority.loc[sla_by_priority['Total'] == 0, '% Cumplimiento'] = 0
