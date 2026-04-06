@@ -142,7 +142,7 @@ def process_tickets(tickets):
     else:
         df['client_name'] = 'Sin cliente'
 
-    # SLA por prioridad (en horas hábiles)
+    # SLA por prioridad (en horas hábiles) - usado para compliance histórico
     sla_map = {'Baja': 40, 'Media': 18, 'Alta': 9, 'Urgente': 9}
     df['sla_hours'] = df['priority_name'].map(sla_map)
 
@@ -152,19 +152,48 @@ def process_tickets(tickets):
     if df['created_at'].dt.tz is None:
         df['created_at'] = df['created_at'].dt.tz_localize('UTC')
 
-    # Calcular horas transcurridas en horas hábiles (hora Chile)
-    df['elapsed_hours'] = df['created_at'].apply(
-        lambda x: calculate_working_hours(x, now)
-    )
+    # Usar due_by de Freshdesk para SLA (más preciso que cálculo manual)
+    if 'due_by' in df.columns:
+        df['due_by'] = pd.to_datetime(df['due_by'], errors='coerce')
+        if df['due_by'].dt.tz is None:
+            df['due_by'] = df['due_by'].dt.tz_localize('UTC', nonexistent='shift_forward', ambiguous='NaT')
+    else:
+        df['due_by'] = pd.NaT
 
-    # SLA restante (solo para tickets abiertos)
-    df['sla_remaining'] = df['sla_hours'] - df['elapsed_hours']
+    # SLA restante basado en due_by de Freshdesk
+    def calc_sla_remaining(row):
+        if row['status'] not in [2, 3] or pd.isna(row.get('due_by')):
+            return None
+        if row['due_by'] < now:
+            # Vencido: calcular horas hábiles pasadas desde el vencimiento (negativo)
+            return -calculate_working_hours(row['due_by'], now)
+        else:
+            # Aún tiene tiempo: calcular horas hábiles restantes (positivo)
+            return calculate_working_hours(now, row['due_by'])
+
+    df['sla_remaining'] = df.apply(calc_sla_remaining, axis=1)
+
+    # SLA status basado en due_by de Freshdesk
     df['sla_status'] = df.apply(
-        lambda row: 'Vencido' if row['sla_remaining'] < 0 and row['status'] in [2, 3]
-        else ('Por vencer' if row['sla_remaining'] < 3 and row['status'] in [2, 3]
+        lambda row: 'Vencido' if row['status'] in [2, 3] and pd.notna(row.get('due_by')) and row['due_by'] <= now
+        else ('Por vencer' if row['status'] in [2, 3] and pd.notna(row.get('sla_remaining')) and row['sla_remaining'] is not None and row['sla_remaining'] < 3
         else 'OK'),
         axis=1
     )
+
+    # Fallback: si no hay due_by, calcular manualmente
+    mask_no_due = df['due_by'].isna() & df['status'].isin([2, 3])
+    if mask_no_due.any():
+        df.loc[mask_no_due, 'elapsed_hours'] = df.loc[mask_no_due, 'created_at'].apply(
+            lambda x: calculate_working_hours(x, now)
+        )
+        df.loc[mask_no_due, 'sla_remaining'] = df.loc[mask_no_due, 'sla_hours'] - df.loc[mask_no_due, 'elapsed_hours']
+        df.loc[mask_no_due, 'sla_status'] = df.loc[mask_no_due].apply(
+            lambda row: 'Vencido' if row['sla_remaining'] <= 0
+            else ('Por vencer' if row['sla_remaining'] < 3
+            else 'OK'),
+            axis=1
+        )
 
     # Extraer stats.resolved_at
     if 'stats' in df.columns:
@@ -508,7 +537,7 @@ with tab4:
 
     detail_df = filtered_df[available_columns].copy()
     detail_df['created_at'] = detail_df['created_at'].dt.strftime('%Y-%m-%d %H:%M')
-    detail_df['updated_at'] = detail_df['updated_at'].dt.strftime('%Y-%m-%d %H:%M')
+    detail_df['updated_at'] = detail_dd['updated_at'].dt.strftime('%Y-%m-%d %H:%M')
 
     column_names = {
         'id': 'ID',
