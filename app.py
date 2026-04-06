@@ -13,10 +13,10 @@ from zoneinfo import ZoneInfo
 # Timezone de Chile
 CHILE_TZ = ZoneInfo("America/Santiago")
 
-# ConfiguraciÃ³n de pÃ¡gina
+# Configuración de página
 st.set_page_config(
     page_title="Dashboard de Tickets - Yom",
-    page_icon="ð",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -38,7 +38,7 @@ creds = load_credentials()
 FRESHDESK_DOMAIN = creds['domain']
 FRESHDESK_API_KEY = creds['apiKey']
 
-# FunciÃ³n para hacer requests a Freshdesk
+# Función para hacer requests a Freshdesk
 def freshdesk_request(endpoint, params=None):
     url = f"https://{FRESHDESK_DOMAIN}/api/v2{endpoint}"
     auth = (FRESHDESK_API_KEY, 'X')
@@ -52,7 +52,7 @@ def fetch_tickets(days_back=90):
     """
     Obtener todos los tickets con stats.
     Freshdesk API no permite filtrar por created_at directamente,
-    asÃ­ que traemos con updated_since y filtramos despuÃ©s por created_at.
+    así que traemos con updated_since y filtramos después por created_at.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
     cutoff_str = cutoff.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -60,7 +60,7 @@ def fetch_tickets(days_back=90):
     all_tickets = []
     page = 1
 
-    with st.spinner(f'Cargando tickets de los Ãºltimos {days_back} dÃ­as...'):
+    with st.spinner(f'Cargando tickets de los últimos {days_back} días...'):
         while True:
             try:
                 tickets = freshdesk_request(
@@ -79,14 +79,14 @@ def fetch_tickets(days_back=90):
                 if page > 50:
                     break
             except Exception as e:
-                st.error(f"Error en pÃ¡gina {page}: {str(e)}")
+                st.error(f"Error en página {page}: {str(e)}")
                 break
     return all_tickets
 
-# Calcular horas hÃ¡biles (corregido con timezone Chile)
+# Calcular horas hábiles (corregido con timezone Chile)
 def calculate_working_hours(start_date, end_date):
     """
-    Calcular horas hÃ¡biles entre dos fechas.
+    Calcular horas hábiles entre dos fechas.
     Horario: Lunes a Viernes, 8:00 AM - 7:00 PM hora Chile.
     """
     if pd.isna(start_date) or pd.isna(end_date):
@@ -100,7 +100,7 @@ def calculate_working_hours(start_date, end_date):
     if end_date.tzinfo is None:
         end_date = end_date.replace(tzinfo=timezone.utc)
 
-    # Convertir a hora Chile para evaluar horas hÃ¡biles
+    # Convertir a hora Chile para evaluar horas hábiles
     start_chile = start_date.astimezone(CHILE_TZ)
     end_chile = end_date.astimezone(CHILE_TZ)
 
@@ -117,7 +117,7 @@ def calculate_working_hours(start_date, end_date):
 
 # Procesar datos
 def process_tickets(tickets):
-    """Convertir tickets a DataFrame con mÃ©tricas calculadas"""
+    """Convertir tickets a DataFrame con métricas calculadas"""
     df = pd.DataFrame(tickets)
 
     if df.empty:
@@ -142,7 +142,7 @@ def process_tickets(tickets):
     else:
         df['client_name'] = 'Sin cliente'
 
-    # SLA por prioridad (en horas hÃ¡biles)
+    # SLA por prioridad (en horas hábiles)
     sla_map = {'Baja': 40, 'Media': 18, 'Alta': 9, 'Urgente': 9}
     df['sla_hours'] = df['priority_name'].map(sla_map)
 
@@ -152,7 +152,7 @@ def process_tickets(tickets):
     if df['created_at'].dt.tz is None:
         df['created_at'] = df['created_at'].dt.tz_localize('UTC')
 
-    # Calcular horas transcurridas en horas hÃ¡biles (hora Chile)
+    # Calcular horas transcurridas en horas hábiles (hora Chile)
     df['elapsed_hours'] = df['created_at'].apply(
         lambda x: calculate_working_hours(x, now)
     )
@@ -177,7 +177,7 @@ def process_tickets(tickets):
     else:
         df['resolved_at'] = None
 
-    # Tiempo de resoluciÃ³n en horas hÃ¡biles desde Freshdesk
+    # Tiempo de resolución en horas hábiles desde Freshdesk
     df['resolution_time'] = df.apply(
         lambda row: calculate_working_hours(row['created_at'], row['resolved_at'])
         if row['status'] in [4, 5] and pd.notna(row.get('resolved_at'))
@@ -185,7 +185,7 @@ def process_tickets(tickets):
         axis=1
     )
 
-    # SLA compliance histÃ³rico
+    # SLA compliance histórico
     df['sla_met'] = df.apply(
         lambda row: (row['resolution_time'] <= row['sla_hours'])
         if pd.notna(row.get('resolution_time'))
@@ -207,22 +207,22 @@ def process_tickets(tickets):
 
 # --- INICIO DE LA APP ---
 
-st.title("ð Dashboard de Tickets - Customer Support")
+st.title("📊 Dashboard de Tickets - Customer Support")
 st.markdown("---")
 
 # Sidebar - Filtros
 st.sidebar.header("Filtros")
 
 date_range = st.sidebar.selectbox(
-    "PerÃ­odo",
-    ["Ãltimos 7 dÃ­as", "Ãltimos 30 dÃ­as", "Ãltimos 90 dÃ­as", "Personalizado"]
+    "Período",
+    ["Últimos 7 días", "Últimos 30 días", "Últimos 90 días", "Personalizado"]
 )
 
-if date_range == "Ãltimos 7 dÃ­as":
+if date_range == "Últimos 7 días":
     days_back = 7
-elif date_range == "Ãltimos 30 dÃ­as":
+elif date_range == "Últimos 30 días":
     days_back = 30
-elif date_range == "Ãltimos 90 dÃ­as":
+elif date_range == "Últimos 90 días":
     days_back = 90
 else:
     start_date = st.sidebar.date_input("Fecha inicio", datetime.now() - timedelta(days=30))
@@ -235,14 +235,14 @@ try:
     df = process_tickets(tickets_raw)
 except Exception as e:
     st.error(f"Error cargando tickets: {str(e)}")
-    st.info("Verifica que los Secrets estÃ©n configurados correctamente en Settings â Secrets")
+    st.info("Verifica que los Secrets estén configurados correctamente en Settings → Secrets")
     st.stop()
 
 if df.empty:
-    st.warning("No hay tickets en el perÃ­odo seleccionado.")
+    st.warning("No hay tickets en el período seleccionado.")
     st.stop()
 
-# Filtro por fecha de creaciÃ³n segÃºn el perÃ­odo seleccionado
+# Filtro por fecha de creación según el período seleccionado
 if date_range == "Personalizado":
     df = df[
         (df['created_at'].dt.date >= start_date) &
@@ -274,39 +274,39 @@ if 'client_name' in filtered_df.columns:
         filtered_df = filtered_df[filtered_df['client_name'] == selected_client]
 
 st.sidebar.markdown("---")
-st.sidebar.caption(f"Ãltima actualizaciÃ³n: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
-st.sidebar.caption(f"Tickets creados en el perÃ­odo: {len(df)}")
+st.sidebar.caption(f"Última actualización: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
+st.sidebar.caption(f"Tickets creados en el período: {len(df)}")
 
-# --- MÃTRICAS PRINCIPALES ---
+# --- MÉTRICAS PRINCIPALES ---
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     open_tickets = len(filtered_df[filtered_df['status'].isin([2, 3])])
-    st.metric("ð« Tickets Abiertos", open_tickets)
+    st.metric("🎫 Tickets Abiertos", open_tickets)
 
 with col2:
     sla_vencido = len(filtered_df[
         (filtered_df['sla_status'] == 'Vencido') &
         (filtered_df['status'].isin([2, 3]))
     ])
-    st.metric("ð¨ SLA Vencido", sla_vencido, delta=None, delta_color="inverse")
+    st.metric("🚨 SLA Vencido", sla_vencido, delta=None, delta_color="inverse")
 
 with col3:
     sla_por_vencer = len(filtered_df[
         (filtered_df['sla_status'] == 'Por vencer') &
         (filtered_df['status'].isin([2, 3]))
     ])
-    st.metric("â ï¸ SLA Por Vencer", sla_por_vencer)
+    st.metric("⚠️ SLA Por Vencer", sla_por_vencer)
 
 with col4:
     if 'client_name' in filtered_df.columns:
         clientes_unicos = filtered_df[filtered_df['status'].isin([2, 3])]['client_name'].nunique()
-        st.metric("ð¥ Clientes Afectados", clientes_unicos)
+        st.metric("👥 Clientes Afectados", clientes_unicos)
 
 st.markdown("---")
 
 # --- TABS ---
-tab1, tab2, tab3, tab4 = st.tabs(["ð Overview", "â±ï¸ SLA", "ð CategorÃ­as", "ð Detalles"])
+tab1, tab2, tab3, tab4 = st.tabs(["📈 Overview", "⏱️ SLA", "📋 Categorías", "🔍 Detalles"])
 
 with tab1:
     st.subheader("Vista General")
@@ -318,7 +318,7 @@ with tab1:
         fig_priority = px.pie(
             values=priority_counts.values,
             names=priority_counts.index,
-            title="DistribuciÃ³n por Prioridad",
+            title="Distribución por Prioridad",
             color_discrete_sequence=px.colors.qualitative.Set2
         )
         st.plotly_chart(fig_priority, use_container_width=True)
@@ -338,23 +338,23 @@ with tab1:
             )
             st.plotly_chart(fig_origin, use_container_width=True)
         else:
-            st.info("Campo 'type' no disponible para anÃ¡lisis de origen")
+            st.info("Campo 'type' no disponible para análisis de origen")
 
-    st.subheader("ð Tendencia de Tickets")
+    st.subheader("📅 Tendencia de Tickets")
     daily_tickets = filtered_df.groupby(filtered_df['created_at'].dt.date).size().reset_index()
     daily_tickets.columns = ['Fecha', 'Cantidad']
     fig_trend = px.line(
         daily_tickets,
         x='Fecha',
         y='Cantidad',
-        title="Tickets Creados por DÃ­a",
+        title="Tickets Creados por Día",
         markers=True
     )
     st.plotly_chart(fig_trend, use_container_width=True)
 
 with tab2:
-    st.subheader("â±ï¸ AnÃ¡lisis de SLA")
-    st.info(f"ð Analizando tickets CREADOS en el perÃ­odo seleccionado ({date_range}). Total: {len(filtered_df)} tickets.")
+    st.subheader("⏱️ Análisis de SLA")
+    st.info(f"📅 Analizando tickets CREADOS en el período seleccionado ({date_range}). Total: {len(filtered_df)} tickets.")
 
     closed_tickets = filtered_df[filtered_df['status'].isin([4, 5])]
 
@@ -367,18 +367,18 @@ with tab2:
 
         with col1:
             st.metric(
-                "â SLA Compliance General",
+                "✅ SLA Compliance General",
                 f"{sla_compliance_historical:.1f}%",
-                help=f"Basado en {sla_total_closed} tickets cerrados/resueltos que fueron CREADOS en el perÃ­odo seleccionado"
+                help=f"Basado en {sla_total_closed} tickets cerrados/resueltos que fueron CREADOS en el período seleccionado"
             )
 
         with col2:
             open_tickets_df = filtered_df[filtered_df['status'].isin([2, 3])]
             in_risk = len(open_tickets_df[open_tickets_df['sla_status'] != 'OK'])
-            st.metric("â ï¸ Tickets Abiertos en Riesgo", in_risk)
+            st.metric("⚠️ Tickets Abiertos en Riesgo", in_risk)
 
         # SLA Compliance por prioridad
-        st.subheader("ð SLA Compliance por Prioridad")
+        st.subheader("📊 SLA Compliance por Prioridad")
 
         sla_by_priority = closed_tickets.groupby('priority_name').agg({
             'sla_met': ['sum', 'count']
@@ -400,8 +400,8 @@ with tab2:
                     help=f"{int(row['Cumplidos'])} de {int(row['Total'])} tickets"
                 )
 
-        # GrÃ¡fico de SLA por prioridad
-        st.subheader("ð GrÃ¡fico de Cumplimiento por Prioridad")
+        # Gráfico de SLA por prioridad
+        st.subheader("📊 Gráfico de Cumplimiento por Prioridad")
         if not sla_by_priority.empty:
             fig_sla_priority = px.bar(
                 x=sla_by_priority.index,
@@ -415,10 +415,10 @@ with tab2:
             fig_sla_priority.add_hline(y=80, line_dash="dash", line_color="red", annotation_text="Meta: 80%")
             st.plotly_chart(fig_sla_priority, use_container_width=True)
     else:
-        st.info("No hay tickets cerrados en el perÃ­odo seleccionado para calcular SLA histÃ³rico")
+        st.info("No hay tickets cerrados en el período seleccionado para calcular SLA histórico")
 
     # SLA de tickets actuales abiertos
-    st.subheader("ð« Estado Actual de Tickets Abiertos")
+    st.subheader("🎫 Estado Actual de Tickets Abiertos")
     open_tickets_df = filtered_df[filtered_df['status'].isin([2, 3])]
 
     if not open_tickets_df.empty:
@@ -429,14 +429,14 @@ with tab2:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.metric("â Tickets en Tiempo", sla_ok)
+            st.metric("✅ Tickets en Tiempo", sla_ok)
 
         with col2:
             avg_remaining = open_tickets_df['sla_remaining'].mean()
-            st.metric("â° SLA Promedio Restante", f"{avg_remaining:.1f}h")
+            st.metric("⏰ SLA Promedio Restante", f"{avg_remaining:.1f}h")
 
         # Tabla de tickets con SLA vencido
-        st.subheader("ð¨ Tickets con SLA Vencido")
+        st.subheader("🚨 Tickets con SLA Vencido")
         vencidos = open_tickets_df[open_tickets_df['sla_status'] == 'Vencido'][
             ['id', 'subject', 'priority_name', 'client_name', 'sla_remaining', 'created_at']
         ].sort_values('sla_remaining')
@@ -447,23 +447,23 @@ with tab2:
             vencidos.columns = ['ID', 'Asunto', 'Prioridad', 'Cliente', 'SLA Vencido', 'Creado']
             st.dataframe(vencidos, use_container_width=True)
         else:
-            st.success("â No hay tickets con SLA vencido")
+            st.success("✅ No hay tickets con SLA vencido")
     else:
-        st.info("No hay tickets abiertos en el perÃ­odo seleccionado")
+        st.info("No hay tickets abiertos en el período seleccionado")
 
 with tab3:
-    st.subheader("ð AnÃ¡lisis por CategorÃ­as")
+    st.subheader("📋 Análisis por Categorías")
 
     if 'client_name' in filtered_df.columns:
-        st.subheader("ð¥ Ranking de Clientes con MÃ¡s Tickets")
+        st.subheader("👥 Ranking de Clientes con Más Tickets")
         top_clients = filtered_df['client_name'].value_counts().head(10).reset_index()
         top_clients.columns = ['Cliente', 'Cantidad de Tickets']
         top_clients['Ranking'] = range(1, len(top_clients) + 1)
         top_clients = top_clients[['Ranking', 'Cliente', 'Cantidad de Tickets']]
         st.dataframe(top_clients, use_container_width=True, hide_index=True)
 
-    # Tiempo promedio de resoluciÃ³n por prioridad
-    st.subheader("â±ï¸ Tiempo Promedio de ResoluciÃ³n por Prioridad")
+    # Tiempo promedio de resolución por prioridad
+    st.subheader("⏱️ Tiempo Promedio de Resolución por Prioridad")
     resolved = filtered_df[
         (filtered_df['status'].isin([4, 5])) &
         (filtered_df['resolution_time'].notna())
@@ -482,25 +482,25 @@ with tab3:
         fig_resolution = px.bar(
             x=avg_resolution.index,
             y=avg_resolution.values,
-            title="Tiempo Promedio de ResoluciÃ³n (horas)",
+            title="Tiempo Promedio de Resolución (horas)",
             labels={'x': 'Prioridad', 'y': 'Horas'},
             color=avg_resolution.values,
             color_continuous_scale='Viridis'
         )
         st.plotly_chart(fig_resolution, use_container_width=True)
     else:
-        st.info("No hay tickets resueltos en el perÃ­odo seleccionado")
+        st.info("No hay tickets resueltos en el período seleccionado")
 
-    # AnÃ¡lisis de origen del problema
+    # Análisis de origen del problema
     if 'problem_origin' in filtered_df.columns:
-        st.subheader("ð AnÃ¡lisis de Origen del Problema")
+        st.subheader("🔍 Análisis de Origen del Problema")
         origin_stats = filtered_df['problem_origin'].value_counts().reset_index()
         origin_stats.columns = ['Origen', 'Cantidad']
         origin_stats['Porcentaje'] = (origin_stats['Cantidad'] / origin_stats['Cantidad'].sum() * 100).round(1)
         st.dataframe(origin_stats, use_container_width=True, hide_index=True)
 
 with tab4:
-    st.subheader("ð Lista Detallada de Tickets")
+    st.subheader("🔍 Lista Detallada de Tickets")
 
     display_columns = ['id', 'subject', 'priority_name', 'status_name', 'client_name',
                        'problem_origin', 'sla_status', 'created_at', 'updated_at']
@@ -531,7 +531,7 @@ with tab4:
 
     csv = detail_df.to_csv(index=False).encode('utf-8')
     st.download_button(
-        label="ð¥ Descargar CSV",
+        label="📥 Descargar CSV",
         data=csv,
         file_name=f"tickets_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv",
         mime="text/csv"
@@ -539,4 +539,4 @@ with tab4:
 
 # Footer
 st.markdown("---")
-st.caption("Dashboard de Tickets - Yom Customer Support | ActualizaciÃ³n automÃ¡tica cada 5 minutos")
+st.caption("Dashboard de Tickets - Yom Customer Support | Actualización automática cada 5 minutos")
