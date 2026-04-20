@@ -12,6 +12,7 @@ import requests
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from streamlit_autorefresh import st_autorefresh
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 
@@ -21,6 +22,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+st_autorefresh(interval=300000, key="autorefresh")
 
 # ── Credentials ──────────────────────────────────────────────
 @st.cache_resource
