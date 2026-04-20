@@ -12,7 +12,7 @@ import requests
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from streamlit_autorefresh import st_autorefresh
+import streamlit.components.v1 as components
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 
@@ -23,8 +23,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-if st_autorefresh(interval=300000, key="autorefresh") > 0:
-    st.cache_data.clear()
+components.html(
+    "<script>setTimeout(function(){window.parent.location.reload();}, 300000);</script>",
+    height=0,
+)
 
 # ── Credentials ──────────────────────────────────────────────
 @st.cache_resource
