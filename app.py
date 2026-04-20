@@ -23,7 +23,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st_autorefresh(interval=300000, key="autorefresh")
+if st_autorefresh(interval=300000, key="autorefresh") > 0:
+    st.cache_data.clear()
 
 # ── Credentials ──────────────────────────────────────────────
 @st.cache_resource
