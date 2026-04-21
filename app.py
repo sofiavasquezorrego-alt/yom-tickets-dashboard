@@ -12,6 +12,7 @@ import requests
 import json
 from pathlib import Path
 from zoneinfo import ZoneInfo
+import streamlit.components.v1 as components
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 
@@ -20,6 +21,11 @@ st.set_page_config(
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
+)
+
+components.html(
+    "<script>setTimeout(function(){window.parent.location.reload();}, 300000);</script>",
+    height=0,
 )
 
 # ── Credentials ──────────────────────────────────────────────
