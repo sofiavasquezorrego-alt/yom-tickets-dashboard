@@ -154,7 +154,7 @@ def build_dataframe(tickets, companies):
     now = pd.Timestamp.now(tz='UTC')
 
     def calc_sla(row):
-        is_open = row['status'] in [2, 3]
+        is_open = row['status'] not in [4, 5]
         is_closed = row['status'] in [4, 5]
         due = row['due_by']
         resolved = row['resolved_at']
@@ -268,7 +268,7 @@ st.title("Dashboard de Tickets — Yom")
 st.caption(f"{start_date.strftime('%d/%m/%Y')} – {end_date.strftime('%d/%m/%Y')}")
 
 # ── Top metrics ─────────────────────────────────────────────────
-open_df = df[df['status'].isin([2, 3])]
+open_df = df[~df['status'].isin([4, 5])]
 closed_df = df[df['status'].isin([4, 5])]
 
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -425,7 +425,7 @@ with tab3:
 
     client_agg = df.groupby('client_name').agg(
         total=('id', 'count'),
-        abiertos=('status', lambda x: (x.isin([2, 3])).sum()),
+        abiertos=('status', lambda x: (~x.isin([4, 5])).sum()),
         cerrados=('status', lambda x: (x.isin([4, 5])).sum()),
     ).reset_index()
 
