@@ -197,10 +197,14 @@ def build_dataframe(tickets, companies):
 # ── Sidebar: filters ─────────────────────────────────────────
 st.sidebar.header("Filtros")
 
+MONTH_NAMES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+_today = date.today()
+_month_options = MONTH_NAMES_ES[:_today.month]
+
 date_option = st.sidebar.selectbox(
     "Período",
-    ["Últimos 7 días", "Últimos 14 días", "Últimos 30 días",
-     "Últimos 90 días", "Personalizado"]
+    ["Este mes"] + _month_options + ["Personalizado"]
 )
 
 if date_option == "Personalizado":
@@ -209,11 +213,18 @@ if date_option == "Personalizado":
         start_date = st.date_input("Desde", date.today() - timedelta(days=30))
     with c2:
         end_date = st.date_input("Hasta", date.today())
+elif date_option == "Este mes":
+    start_date = date(_today.year, _today.month, 1)
+    end_date = _today
 else:
-    days_map = {"Últimos 7 días": 7, "Últimos 14 días": 14,
-                "Últimos 30 días": 30, "Últimos 90 días": 90}
-    end_date = date.today()
-    start_date = end_date - timedelta(days=days_map[date_option])
+    _month_num = MONTH_NAMES_ES.index(date_option) + 1
+    start_date = date(_today.year, _month_num, 1)
+    if _month_num == _today.month:
+        end_date = _today
+    elif _month_num == 12:
+        end_date = date(_today.year, 12, 31)
+    else:
+        end_date = date(_today.year, _month_num + 1, 1) - timedelta(days=1)
 
 start_dt = pd.Timestamp(start_date, tz='UTC')
 end_dt = pd.Timestamp(end_date, tz='UTC') + pd.Timedelta(days=1)
@@ -295,8 +306,8 @@ st.markdown("---")
 
 
 # ── Tabs ──────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["Overview", "SLA", "Clientes", "Detalle"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["Overview", "SLA", "Clientes", "Detalle", "Comparación por mes"]
 )
 
 # ── TAB 1: Overview ──────────────────────────────────────────
@@ -487,6 +498,92 @@ with tab4:
         f"tickets_yom_{date.today().isoformat()}.csv",
         "text/csv"
     )
+
+
+# ── TAB 5: Comparación por mes ───────────────────────────────
+with tab5:
+    st.subheader("Comparación por mes")
+    st.caption("Independiente del filtro de período y filtros del sidebar.")
+
+    mc_today = date.today()
+    mc_month_options = MONTH_NAMES_ES[:mc_today.month]
+
+    mc_col_l, mc_col_r = st.columns(2)
+    with mc_col_l:
+        mc_default_months = mc_month_options[-3:] if len(mc_month_options) >= 3 else mc_month_options
+        mc_selected_months = st.multiselect(
+            "Meses a comparar",
+            mc_month_options,
+            default=mc_default_months,
+            key="mc_months"
+        )
+    with mc_col_r:
+        mc_all_metrics = ['Total', 'Abiertos', 'Cerrados',
+                          'SLA Vencido', 'Por Vencer', 'SLA Compliance %']
+        mc_selected_metrics = st.multiselect(
+            "Métricas",
+            mc_all_metrics,
+            default=mc_all_metrics,
+            key="mc_metrics"
+        )
+
+    if not mc_selected_months:
+        st.info("Selecciona al menos un mes para comparar.")
+    elif not mc_selected_metrics:
+        st.info("Selecciona al menos una métrica.")
+    else:
+        mc_rows = []
+        for mc_month in mc_selected_months:
+            mc_month_num = MONTH_NAMES_ES.index(mc_month) + 1
+            mc_start = pd.Timestamp(date(mc_today.year, mc_month_num, 1), tz='UTC')
+            if mc_month_num == 12:
+                mc_end = pd.Timestamp(date(mc_today.year + 1, 1, 1), tz='UTC')
+            else:
+                mc_end = pd.Timestamp(date(mc_today.year, mc_month_num + 1, 1), tz='UTC')
+
+            mc_month_df = df_all[(df_all['created_at'] >= mc_start) &
+                                 (df_all['created_at'] < mc_end)]
+            mc_open = mc_month_df[~mc_month_df['status'].isin([4, 5])]
+            mc_closed = mc_month_df[mc_month_df['status'].isin([4, 5])]
+            mc_sla_data = mc_closed[mc_closed['sla_met'].notna()]
+
+            mc_row = {'Mes': mc_month}
+            if 'Total' in mc_selected_metrics:
+                mc_row['Total'] = len(mc_month_df)
+            if 'Abiertos' in mc_selected_metrics:
+                mc_row['Abiertos'] = len(mc_open)
+            if 'Cerrados' in mc_selected_metrics:
+                mc_row['Cerrados'] = len(mc_closed)
+            if 'SLA Vencido' in mc_selected_metrics:
+                mc_row['SLA Vencido'] = len(mc_open[mc_open['sla_status'] == 'Vencido'])
+            if 'Por Vencer' in mc_selected_metrics:
+                mc_row['Por Vencer'] = len(mc_open[mc_open['sla_status'] == 'Por vencer'])
+            if 'SLA Compliance %' in mc_selected_metrics:
+                if len(mc_sla_data) > 0:
+                    mc_row['SLA Compliance %'] = round(
+                        mc_sla_data['sla_met'].sum() / len(mc_sla_data) * 100, 1
+                    )
+                else:
+                    mc_row['SLA Compliance %'] = None
+            mc_rows.append(mc_row)
+
+        mc_table = pd.DataFrame(mc_rows)
+        st.dataframe(mc_table, use_container_width=True, hide_index=True)
+
+        mc_value_cols = [c for c in mc_table.columns if c != 'Mes']
+        if mc_value_cols:
+            mc_melted = mc_table.melt(
+                id_vars=['Mes'], value_vars=mc_value_cols,
+                var_name='Métrica', value_name='Valor'
+            )
+            mc_fig = px.bar(
+                mc_melted, x='Mes', y='Valor',
+                color='Métrica', barmode='group',
+                title="Comparación mensual"
+            )
+            mc_fig.update_layout(margin=dict(t=40, b=20))
+            st.plotly_chart(mc_fig, use_container_width=True)
+
 
 # ── Footer ────────────────────────────────────────────────────
 st.markdown("---")
