@@ -16,6 +16,13 @@ import streamlit.components.v1 as components
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 
+SLA_COMPLIANCE_HELP = (
+    "**SLA Compliance — rangos de referencia:**\n\n"
+    "🔴 Bajo — menos de 80%\n\n"
+    "🟡 Medio — entre 80% y 94%\n\n"
+    "🟢 Alto — 95% o más"
+)
+
 st.set_page_config(
     page_title="Dashboard de Tickets - Yom",
     page_icon="📊",
@@ -298,9 +305,9 @@ with c5:
     sla_data = closed_df[closed_df['sla_met'].notna()]
     if len(sla_data) > 0:
         pct = sla_data['sla_met'].sum() / len(sla_data) * 100
-        st.metric("SLA Compliance", f"{pct:.0f}%")
+        st.metric("SLA Compliance", f"{pct:.0f}%", help=SLA_COMPLIANCE_HELP)
     else:
-        st.metric("SLA Compliance", "—")
+        st.metric("SLA Compliance", "—", help=SLA_COMPLIANCE_HELP)
 
 st.markdown("---")
 
@@ -358,7 +365,7 @@ with tab2:
         with c2:
             st.metric("Tarde", not_met)
         with c3:
-            st.metric("Compliance", f"{met / len(sla_closed) * 100:.1f}%")
+            st.metric("Compliance", f"{met / len(sla_closed) * 100:.1f}%", help=SLA_COMPLIANCE_HELP)
 
         # By priority
         by_prio = sla_closed.groupby('priority_name').agg(
@@ -370,7 +377,12 @@ with tab2:
         by_prio['compliance'] = (by_prio['a_tiempo'] / by_prio['total'] * 100).round(1)
         by_prio.columns = ['Prioridad', 'Total', 'A tiempo', 'Tarde', '% Compliance']
 
-        st.dataframe(by_prio, use_container_width=True, hide_index=True)
+        st.dataframe(
+            by_prio, use_container_width=True, hide_index=True,
+            column_config={
+                '% Compliance': st.column_config.Column('% Compliance', help=SLA_COMPLIANCE_HELP)
+            }
+        )
 
         fig = px.bar(
             by_prio, x='Prioridad', y='% Compliance',
@@ -453,7 +465,12 @@ with tab3:
     client_agg.columns = ['Cliente', 'Total', 'Abiertos', 'Cerrados', 'SLA %']
     client_agg['SLA %'] = client_agg['SLA %'].apply(lambda x: f"{x:.0f}%" if pd.notna(x) else "—")
 
-    st.dataframe(client_agg, use_container_width=True, hide_index=True)
+    st.dataframe(
+        client_agg, use_container_width=True, hide_index=True,
+        column_config={
+            'SLA %': st.column_config.Column('SLA %', help=SLA_COMPLIANCE_HELP)
+        }
+    )
 
     # Chart
     chart_data = client_agg.head(10).copy()
@@ -568,7 +585,14 @@ with tab5:
             mc_rows.append(mc_row)
 
         mc_table = pd.DataFrame(mc_rows)
-        st.dataframe(mc_table, use_container_width=True, hide_index=True)
+        st.dataframe(
+            mc_table, use_container_width=True, hide_index=True,
+            column_config={
+                'SLA Compliance %': st.column_config.Column(
+                    'SLA Compliance %', help=SLA_COMPLIANCE_HELP
+                )
+            }
+        )
 
         mc_value_cols = [c for c in mc_table.columns if c != 'Mes']
         if mc_value_cols:
