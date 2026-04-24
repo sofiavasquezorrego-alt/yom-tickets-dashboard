@@ -170,6 +170,8 @@ def build_dataframe(tickets, companies):
             return 'Sin SLA'
 
         if is_open:
+            if row['status'] == 6:
+                return 'OK'
             if now > due:
                 return 'Vencido'
             hours_left = (due - now).total_seconds() / 3600
