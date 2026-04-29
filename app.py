@@ -15,8 +15,6 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 import streamlit.components.v1 as components
 
-WAITING_CUSTOMER_STATUS = 6
-
 CHILE_TZ = ZoneInfo("America/Santiago")
 
 SLA_COMPLIANCE_HELP = (
@@ -116,96 +114,52 @@ def fetch_all_tickets():
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def fetch_ticket_activities(ticket_id):
-    activities = []
+def fetch_ticket_conversations(ticket_id):
+    convs = []
     page = 1
-    while page <= 30:
+    while page <= 20:
         try:
-            resp = api_get(f'/tickets/{ticket_id}/activities',
-                           {'per_page': 30, 'page': page})
+            batch = api_get(f'/tickets/{ticket_id}/conversations',
+                            {'per_page': 100, 'page': page})
         except Exception:
             return None
-        if isinstance(resp, dict) and 'activities' in resp:
-            batch = resp['activities']
-        elif isinstance(resp, list):
-            batch = resp
-        else:
+        if not isinstance(batch, list) or not batch:
             break
-        if not batch:
-            break
-        activities.extend(batch)
-        if len(batch) < 30:
+        convs.extend(batch)
+        if len(batch) < 100:
             break
         page += 1
-    return activities
+    return convs
 
 
-def _extract_status_change(activity):
-    content = activity.get('content')
-    if not isinstance(content, dict):
-        return None
-    last = content.get('last_updated_data')
-    if not isinstance(last, dict):
-        return None
-    status = last.get('status')
-    if status is None:
-        return None
-    if isinstance(status, dict):
-        return status.get('to')
-    if isinstance(status, list) and len(status) >= 2:
-        return status[1]
-    if isinstance(status, (int, float)):
-        return int(status)
-    return None
-
-
-def compute_waiting_customer_total(activities, current_status, fallback_since, now):
+def waiting_time_from_conversations(convs):
     """
-    Sum durations across all segments where status was WAITING_CUSTOMER_STATUS.
-    Returns pd.Timedelta or pd.NaT.
+    Approximate "waiting on customer" time by summing intervals between
+    each public agent reply and the next public customer reply.
+    Returns pd.Timedelta (0 if no waiting period found).
     """
-    if activities is None:
-        if current_status == WAITING_CUSTOMER_STATUS and pd.notna(fallback_since):
-            return now - fallback_since
-        return pd.NaT
-
-    transitions = []
-    for a in activities:
-        ts_raw = a.get('performed_at') or a.get('created_at')
-        if not ts_raw:
+    if not convs:
+        return pd.Timedelta(0)
+    public = []
+    for c in convs:
+        if c.get('private'):
             continue
-        new_status = _extract_status_change(a)
-        if new_status is None:
-            continue
-        ts = pd.to_datetime(ts_raw, utc=True, errors='coerce')
+        ts = pd.to_datetime(c.get('created_at'), utc=True, errors='coerce')
         if pd.isna(ts):
             continue
-        transitions.append((ts, int(new_status)))
-
-    transitions.sort()
+        public.append((ts, bool(c.get('incoming'))))
+    public.sort()
 
     total = pd.Timedelta(0)
-    enter_ts = None
-    for ts, status in transitions:
-        if status == WAITING_CUSTOMER_STATUS:
-            if enter_ts is None:
-                enter_ts = ts
+    last_agent_reply = None
+    for ts, incoming in public:
+        if incoming:
+            if last_agent_reply is not None:
+                total += ts - last_agent_reply
+                last_agent_reply = None
         else:
-            if enter_ts is not None:
-                total += ts - enter_ts
-                enter_ts = None
-
-    if current_status == WAITING_CUSTOMER_STATUS:
-        if enter_ts is not None:
-            total += now - enter_ts
-        elif not transitions and pd.notna(fallback_since):
-            total += now - fallback_since
-
-    if total == pd.Timedelta(0) and not any(
-        s == WAITING_CUSTOMER_STATUS for _, s in transitions
-    ) and current_status != WAITING_CUSTOMER_STATUS:
-        return pd.NaT
-
+            if last_agent_reply is None:
+                last_agent_reply = ts
     return total
 
 
@@ -232,17 +186,6 @@ def build_dataframe(tickets, companies):
         lambda s: s.get('first_responded_at') if isinstance(s, dict) else None
     )
     df['first_responded_at'] = pd.to_datetime(df['first_responded_at'], errors='coerce', utc=True)
-
-    # pending_since / status_updated_at from stats (for customer-pending-time calc)
-    df['pending_since'] = df['stats'].apply(
-        lambda s: s.get('pending_since') if isinstance(s, dict) else None
-    )
-    df['pending_since'] = pd.to_datetime(df['pending_since'], errors='coerce', utc=True)
-
-    df['status_updated_at'] = df['stats'].apply(
-        lambda s: s.get('status_updated_at') if isinstance(s, dict) else None
-    )
-    df['status_updated_at'] = pd.to_datetime(df['status_updated_at'], errors='coerce', utc=True)
 
     # Priority & Status maps
     prio_map = {1: 'Baja', 2: 'Media', 3: 'Alta', 4: 'Urgente'}
@@ -551,98 +494,75 @@ with tab2:
     else:
         st.success("No hay tickets abiertos en este período.")
 
-    # Customer waiting time per ticket (status 6 — Esperando al cliente)
+    # Customer waiting time — closed tickets only, approximated from conversations
     st.markdown("---")
-    st.subheader("Tiempo Esperando al Cliente")
+    st.subheader("Tiempo Esperando al Cliente — Tickets Cerrados")
     st.caption(
-        "Suma de **todos los períodos** en estado *Esperando al cliente* "
-        "(reconstruido desde el activity log de cada ticket)."
+        "Aproximación: suma de los intervalos entre cada respuesta del agente y "
+        "la siguiente respuesta del cliente, en tickets resueltos/cerrados del período."
     )
 
-    now_ts = pd.Timestamp.now(tz='UTC')
-    ticket_ids = df['id'].tolist()
-
-    with st.spinner(f"Calculando tiempos para {len(ticket_ids)} ticket(s)…"):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-            activities_by_id = dict(zip(
-                ticket_ids,
-                ex.map(fetch_ticket_activities, ticket_ids)
-            ))
-
-    api_failed = sum(1 for v in activities_by_id.values() if v is None)
-    if api_failed and api_failed == len(ticket_ids):
-        st.warning(
-            "El endpoint de activities de Freshdesk no respondió para ningún "
-            "ticket. Mostrando solo el último período como aproximación."
-        )
-        with st.expander("Detalle del error (debug)"):
-            try:
-                probe = requests.get(
-                    f"{BASE_URL}/tickets/{ticket_ids[0]}/activities",
-                    auth=AUTH, timeout=15
-                )
-                st.code(
-                    f"GET /tickets/{ticket_ids[0]}/activities\n"
-                    f"status: {probe.status_code}\n"
-                    f"body: {probe.text[:500]}"
-                )
-            except Exception as e:
-                st.code(f"Exception: {e}")
-    elif api_failed:
-        st.info(f"{api_failed} ticket(s) sin activities — usando aproximación para esos.")
-
-    waiting_totals = df.apply(
-        lambda r: compute_waiting_customer_total(
-            activities_by_id.get(r['id']), r['status'], r['pending_since'], now_ts
-        ),
-        axis=1
-    )
-    df_w = df.assign(waiting_time=waiting_totals)
-    df_w['_waiting_seconds'] = df_w['waiting_time'].apply(
-        lambda t: t.total_seconds() if isinstance(t, pd.Timedelta) else None
-    )
-    df_w = df_w[df_w['_waiting_seconds'].notna() & (df_w['_waiting_seconds'] > 0)].copy()
-
-    if df_w.empty:
-        st.info("Ningún ticket del período registró tiempo en 'Esperando al cliente'.")
+    closed_ids = closed_df['id'].tolist()
+    if not closed_ids:
+        st.info("No hay tickets cerrados en el período.")
     else:
-        clients = sorted(df_w['client_name'].unique().tolist())
-        client_filter = st.selectbox(
-            "Filtrar por cliente", ["Todos"] + clients, key="waiting_client_filter"
+        with st.spinner(f"Cargando conversaciones de {len(closed_ids)} ticket(s)…"):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                convs_by_id = dict(zip(
+                    closed_ids,
+                    ex.map(fetch_ticket_conversations, closed_ids)
+                ))
+
+        waiting_totals = closed_df.apply(
+            lambda r: waiting_time_from_conversations(convs_by_id.get(r['id'])),
+            axis=1
         )
-        view = df_w if client_filter == "Todos" else df_w[df_w['client_name'] == client_filter]
+        df_w = closed_df.assign(waiting_time=waiting_totals)
+        df_w['_waiting_seconds'] = df_w['waiting_time'].apply(
+            lambda t: t.total_seconds() if isinstance(t, pd.Timedelta) else None
+        )
+        df_w = df_w[df_w['_waiting_seconds'].notna() & (df_w['_waiting_seconds'] > 0)].copy()
 
-        if view.empty:
-            st.info("No hay tickets del cliente seleccionado con tiempo de espera.")
+        if df_w.empty:
+            st.info("Ningún ticket cerrado del período registró tiempo de espera del cliente.")
         else:
-            avg = view['waiting_time'].mean()
+            clients = sorted(df_w['client_name'].unique().tolist())
+            client_filter = st.selectbox(
+                "Filtrar por cliente", ["Todos"] + clients, key="waiting_client_filter"
+            )
+            view = df_w if client_filter == "Todos" else df_w[df_w['client_name'] == client_filter]
 
-            def fmt_duration(td):
-                if pd.isna(td):
-                    return "—"
-                s = int(td.total_seconds())
-                d, rem = divmod(s, 86400)
-                h, rem = divmod(rem, 3600)
-                m = rem // 60
-                if d:
-                    return f"{d}d {h}h {m}m"
-                return f"{h}h {m}m"
+            if view.empty:
+                st.info("No hay tickets del cliente seleccionado con tiempo de espera.")
+            else:
+                avg = view['waiting_time'].mean()
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.metric("Tickets", len(view))
-            with c2:
-                st.metric("Promedio espera cliente", fmt_duration(avg))
+                def fmt_duration(td):
+                    if pd.isna(td):
+                        return "—"
+                    s = int(td.total_seconds())
+                    d, rem = divmod(s, 86400)
+                    h, rem = divmod(rem, 3600)
+                    m = rem // 60
+                    if d:
+                        return f"{d}d {h}h {m}m"
+                    return f"{h}h {m}m"
 
-            view = view.sort_values('waiting_time', ascending=False)
-            display = pd.DataFrame({
-                '#': view['id'],
-                'Asunto': view['subject'],
-                'Cliente': view['client_name'],
-                'Estado': view['status_name'],
-                'Tiempo Esperando Cliente': view['waiting_time'].apply(fmt_duration),
-            })
-            st.dataframe(display, use_container_width=True, hide_index=True)
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("Tickets", len(view))
+                with c2:
+                    st.metric("Promedio espera cliente", fmt_duration(avg))
+
+                view = view.sort_values('waiting_time', ascending=False)
+                display = pd.DataFrame({
+                    '#': view['id'],
+                    'Asunto': view['subject'],
+                    'Cliente': view['client_name'],
+                    'Estado': view['status_name'],
+                    'Tiempo Esperando Cliente': view['waiting_time'].apply(fmt_duration),
+                })
+                st.dataframe(display, use_container_width=True, hide_index=True)
 
 
 # ── TAB 3: Clientes ──────────────────────────────────────────
