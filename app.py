@@ -575,6 +575,19 @@ with tab2:
             "El endpoint de activities de Freshdesk no respondió para ningún "
             "ticket. Mostrando solo el último período como aproximación."
         )
+        with st.expander("Detalle del error (debug)"):
+            try:
+                probe = requests.get(
+                    f"{BASE_URL}/tickets/{ticket_ids[0]}/activities",
+                    auth=AUTH, timeout=15
+                )
+                st.code(
+                    f"GET /tickets/{ticket_ids[0]}/activities\n"
+                    f"status: {probe.status_code}\n"
+                    f"body: {probe.text[:500]}"
+                )
+            except Exception as e:
+                st.code(f"Exception: {e}")
     elif api_failed:
         st.info(f"{api_failed} ticket(s) sin activities — usando aproximación para esos.")
 
@@ -585,7 +598,10 @@ with tab2:
         axis=1
     )
     df_w = df.assign(waiting_time=waiting_totals)
-    df_w = df_w[df_w['waiting_time'].notna() & (df_w['waiting_time'] > pd.Timedelta(0))].copy()
+    df_w['_waiting_seconds'] = df_w['waiting_time'].apply(
+        lambda t: t.total_seconds() if isinstance(t, pd.Timedelta) else None
+    )
+    df_w = df_w[df_w['_waiting_seconds'].notna() & (df_w['_waiting_seconds'] > 0)].copy()
 
     if df_w.empty:
         st.info("Ningún ticket del período registró tiempo en 'Esperando al cliente'.")
