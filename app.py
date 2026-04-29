@@ -136,6 +136,17 @@ def build_dataframe(tickets, companies):
     )
     df['first_responded_at'] = pd.to_datetime(df['first_responded_at'], errors='coerce', utc=True)
 
+    # pending_since / status_updated_at from stats (for customer-pending-time calc)
+    df['pending_since'] = df['stats'].apply(
+        lambda s: s.get('pending_since') if isinstance(s, dict) else None
+    )
+    df['pending_since'] = pd.to_datetime(df['pending_since'], errors='coerce', utc=True)
+
+    df['status_updated_at'] = df['stats'].apply(
+        lambda s: s.get('status_updated_at') if isinstance(s, dict) else None
+    )
+    df['status_updated_at'] = pd.to_datetime(df['status_updated_at'], errors='coerce', utc=True)
+
     # Priority & Status maps
     prio_map = {1: 'Baja', 2: 'Media', 3: 'Alta', 4: 'Urgente'}
     status_map = {2: 'Abierto', 3: 'Pendiente', 4: 'Resuelto', 5: 'Cerrado'}
@@ -187,6 +198,23 @@ def build_dataframe(tickets, companies):
         return 'N/A'
 
     df['sla_status'] = df.apply(calc_sla, axis=1)
+
+    # ── Customer pending time (last pending segment) ──
+    # Approximation: API v2 only exposes `pending_since` (last time the ticket
+    # entered Pending). If the ticket cycled in/out of Pending multiple times,
+    # earlier segments are not counted.
+    def calc_pending_time(row):
+        ps = row['pending_since']
+        if pd.isna(ps):
+            return pd.NaT
+        if row['status'] == 3:
+            return now - ps
+        end = row['status_updated_at']
+        if pd.notna(end) and end > ps:
+            return end - ps
+        return pd.NaT
+
+    df['customer_pending_time'] = df.apply(calc_pending_time, axis=1)
 
     # Boolean for compliance calcs
     df['sla_met'] = df['sla_status'].map({
@@ -441,6 +469,38 @@ with tab2:
             st.dataframe(overdue, use_container_width=True, hide_index=True)
     else:
         st.success("No hay tickets abiertos en este período.")
+
+    # Customer pending time per ticket
+    st.markdown("---")
+    st.subheader("Tiempo Esperando al Cliente")
+    st.caption(
+        "Tiempo del último período en estado **Pendiente**. Si el ticket sigue "
+        "pendiente, se cuenta hasta ahora; si no, hasta el último cambio de estado."
+    )
+
+    pending_df = df[df['customer_pending_time'].notna()].copy()
+    if not pending_df.empty:
+        pending_df['_seconds'] = pending_df['customer_pending_time'].dt.total_seconds()
+
+        def fmt_duration(s):
+            h = int(s // 3600)
+            m = int((s % 3600) // 60)
+            if h >= 24:
+                d, h = divmod(h, 24)
+                return f"{d}d {h}h {m}m"
+            return f"{h}h {m}m"
+
+        pending_df['Tiempo Esperando Cliente'] = pending_df['_seconds'].apply(fmt_duration)
+        pending_df = pending_df.sort_values('_seconds', ascending=False)
+        display = pending_df[
+            ['id', 'subject', 'client_name', 'status_name', 'Tiempo Esperando Cliente']
+        ].rename(columns={
+            'id': '#', 'subject': 'Asunto',
+            'client_name': 'Cliente', 'status_name': 'Estado'
+        })
+        st.dataframe(display, use_container_width=True, hide_index=True)
+    else:
+        st.info("Ningún ticket del período tiene tiempo registrado en estado Pendiente.")
 
 
 # ── TAB 3: Clientes ──────────────────────────────────────────
