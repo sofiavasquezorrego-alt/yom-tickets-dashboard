@@ -322,10 +322,11 @@ with tab1:
     col_l, col_r = st.columns(2)
 
     with col_l:
-        counts = df['status_name'].value_counts()
+        type_series = df['type'] if 'type' in df.columns else pd.Series('Sin tipo', index=df.index)
+        counts = type_series.fillna('Sin tipo').replace('', 'Sin tipo').value_counts()
         fig = px.pie(
             values=counts.values, names=counts.index,
-            title="Por Estado", hole=0.4,
+            title="Por Type", hole=0.4,
             color_discrete_sequence=px.colors.qualitative.Set2
         )
         fig.update_layout(margin=dict(t=40, b=20))
