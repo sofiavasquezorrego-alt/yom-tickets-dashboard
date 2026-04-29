@@ -142,6 +142,22 @@ def build_dataframe(tickets, companies):
     df['priority_name'] = df['priority'].map(prio_map).fillna('Desconocida')
     df['status_name'] = df['status'].map(status_map).fillna('Desconocido')
 
+    # ── Type (native field with custom_fields fallback) ──
+    def extract_type(row):
+        native = row.get('type') if 'type' in row.index else None
+        if native is not None and str(native).strip():
+            return str(native).strip()
+        cf = row.get('custom_fields') if 'custom_fields' in row.index else None
+        if isinstance(cf, dict):
+            for key, val in cf.items():
+                key_l = str(key).lower()
+                if 'type' in key_l or 'tipo' in key_l:
+                    if val is not None and str(val).strip():
+                        return str(val).strip()
+        return 'Sin tipo'
+
+    df['type_name'] = df.apply(extract_type, axis=1)
+
     # ── Client name ──
     # Primary: company_id → company name
     df['client_name'] = df['company_id'].map(companies) if 'company_id' in df.columns else pd.Series('', index=df.index)
@@ -322,8 +338,7 @@ with tab1:
     col_l, col_r = st.columns(2)
 
     with col_l:
-        type_series = df['type'] if 'type' in df.columns else pd.Series('Sin tipo', index=df.index)
-        counts = type_series.fillna('Sin tipo').replace('', 'Sin tipo').value_counts()
+        counts = df['type_name'].value_counts()
         fig = px.pie(
             values=counts.values, names=counts.index,
             title="Por Type", hole=0.4,
