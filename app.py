@@ -401,6 +401,76 @@ with tab1:
     fig.update_layout(margin=dict(t=40, b=20))
     st.plotly_chart(fig, use_container_width=True)
 
+    # Customer waiting time — closed tickets only, approximated from conversations
+    st.markdown("---")
+    st.subheader("Tiempo Esperando al Cliente — Tickets Cerrados")
+    st.caption(
+        "Aproximación: suma de los intervalos entre cada respuesta del agente y "
+        "la siguiente respuesta del cliente, en tickets resueltos/cerrados del período."
+    )
+
+    closed_ids = closed_df['id'].tolist()
+    if not closed_ids:
+        st.info("No hay tickets cerrados en el período.")
+    else:
+        with st.spinner(f"Cargando conversaciones de {len(closed_ids)} ticket(s)…"):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                convs_by_id = dict(zip(
+                    closed_ids,
+                    ex.map(fetch_ticket_conversations, closed_ids)
+                ))
+
+        waiting_totals = closed_df.apply(
+            lambda r: waiting_time_from_conversations(convs_by_id.get(r['id'])),
+            axis=1
+        )
+        df_w = closed_df.assign(waiting_time=waiting_totals)
+        df_w['_waiting_seconds'] = df_w['waiting_time'].apply(
+            lambda t: t.total_seconds() if isinstance(t, pd.Timedelta) else None
+        )
+        df_w = df_w[df_w['_waiting_seconds'].notna() & (df_w['_waiting_seconds'] > 0)].copy()
+
+        if df_w.empty:
+            st.info("Ningún ticket cerrado del período registró tiempo de espera del cliente.")
+        else:
+            clients = sorted(df_w['client_name'].unique().tolist())
+            client_filter = st.selectbox(
+                "Filtrar por cliente", ["Todos"] + clients, key="waiting_client_filter"
+            )
+            view = df_w if client_filter == "Todos" else df_w[df_w['client_name'] == client_filter]
+
+            if view.empty:
+                st.info("No hay tickets del cliente seleccionado con tiempo de espera.")
+            else:
+                avg = view['waiting_time'].mean()
+
+                def fmt_duration(td):
+                    if pd.isna(td):
+                        return "—"
+                    s = int(td.total_seconds())
+                    d, rem = divmod(s, 86400)
+                    h, rem = divmod(rem, 3600)
+                    m = rem // 60
+                    if d:
+                        return f"{d}d {h}h {m}m"
+                    return f"{h}h {m}m"
+
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.metric("Tickets", len(view))
+                with c2:
+                    st.metric("Promedio espera cliente", fmt_duration(avg))
+
+                view = view.sort_values('waiting_time', ascending=False)
+                display = pd.DataFrame({
+                    '#': view['id'],
+                    'Asunto': view['subject'],
+                    'Cliente': view['client_name'],
+                    'Estado': view['status_name'],
+                    'Tiempo Esperando Cliente': view['waiting_time'].apply(fmt_duration),
+                })
+                st.dataframe(display, use_container_width=True, hide_index=True)
+
 
 # ── TAB 2: SLA ───────────────────────────────────────────────
 with tab2:
@@ -493,76 +563,6 @@ with tab2:
             st.dataframe(overdue, use_container_width=True, hide_index=True)
     else:
         st.success("No hay tickets abiertos en este período.")
-
-    # Customer waiting time — closed tickets only, approximated from conversations
-    st.markdown("---")
-    st.subheader("Tiempo Esperando al Cliente — Tickets Cerrados")
-    st.caption(
-        "Aproximación: suma de los intervalos entre cada respuesta del agente y "
-        "la siguiente respuesta del cliente, en tickets resueltos/cerrados del período."
-    )
-
-    closed_ids = closed_df['id'].tolist()
-    if not closed_ids:
-        st.info("No hay tickets cerrados en el período.")
-    else:
-        with st.spinner(f"Cargando conversaciones de {len(closed_ids)} ticket(s)…"):
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-                convs_by_id = dict(zip(
-                    closed_ids,
-                    ex.map(fetch_ticket_conversations, closed_ids)
-                ))
-
-        waiting_totals = closed_df.apply(
-            lambda r: waiting_time_from_conversations(convs_by_id.get(r['id'])),
-            axis=1
-        )
-        df_w = closed_df.assign(waiting_time=waiting_totals)
-        df_w['_waiting_seconds'] = df_w['waiting_time'].apply(
-            lambda t: t.total_seconds() if isinstance(t, pd.Timedelta) else None
-        )
-        df_w = df_w[df_w['_waiting_seconds'].notna() & (df_w['_waiting_seconds'] > 0)].copy()
-
-        if df_w.empty:
-            st.info("Ningún ticket cerrado del período registró tiempo de espera del cliente.")
-        else:
-            clients = sorted(df_w['client_name'].unique().tolist())
-            client_filter = st.selectbox(
-                "Filtrar por cliente", ["Todos"] + clients, key="waiting_client_filter"
-            )
-            view = df_w if client_filter == "Todos" else df_w[df_w['client_name'] == client_filter]
-
-            if view.empty:
-                st.info("No hay tickets del cliente seleccionado con tiempo de espera.")
-            else:
-                avg = view['waiting_time'].mean()
-
-                def fmt_duration(td):
-                    if pd.isna(td):
-                        return "—"
-                    s = int(td.total_seconds())
-                    d, rem = divmod(s, 86400)
-                    h, rem = divmod(rem, 3600)
-                    m = rem // 60
-                    if d:
-                        return f"{d}d {h}h {m}m"
-                    return f"{h}h {m}m"
-
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.metric("Tickets", len(view))
-                with c2:
-                    st.metric("Promedio espera cliente", fmt_duration(avg))
-
-                view = view.sort_values('waiting_time', ascending=False)
-                display = pd.DataFrame({
-                    '#': view['id'],
-                    'Asunto': view['subject'],
-                    'Cliente': view['client_name'],
-                    'Estado': view['status_name'],
-                    'Tiempo Esperando Cliente': view['waiting_time'].apply(fmt_duration),
-                })
-                st.dataframe(display, use_container_width=True, hide_index=True)
 
 
 # ── TAB 3: Clientes ──────────────────────────────────────────
