@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 import streamlit.components.v1 as components
 
 CHILE_TZ = ZoneInfo("America/Santiago")
+SLA_PAUSED_STATUSES = {3, 6}
 
 SLA_COMPLIANCE_HELP = (
     "**SLA Compliance — rangos de referencia:**\n\n"
@@ -215,6 +216,7 @@ def build_dataframe(tickets, companies):
     def calc_sla(row):
         is_open = row['status'] not in [4, 5]
         is_closed = row['status'] in [4, 5]
+        is_paused = row['status'] in SLA_PAUSED_STATUSES
         due = row['due_by']
         resolved = row['resolved_at']
 
@@ -222,6 +224,8 @@ def build_dataframe(tickets, companies):
             return 'Sin SLA'
 
         if is_open:
+            if is_paused:
+                return 'En pausa'
             if now > due:
                 return 'Vencido'
             hours_left = (due - now).total_seconds() / 3600
@@ -539,7 +543,7 @@ with tab2:
     st.subheader("Tickets Abiertos — Estado SLA")
 
     if len(open_df) > 0:
-        for status_val in ['Vencido', 'Por vencer', 'OK', 'Sin SLA']:
+        for status_val in ['Vencido', 'Por vencer', 'OK', 'En pausa', 'Sin SLA']:
             count = len(open_df[open_df['sla_status'] == status_val])
             if count == 0:
                 continue
@@ -549,6 +553,8 @@ with tab2:
                 st.warning(f"⚠️ {count} ticket(s) por vencer (<4h)")
             elif status_val == 'OK':
                 st.success(f"✅ {count} ticket(s) dentro de SLA")
+            elif status_val == 'En pausa':
+                st.info(f"⏸️ {count} ticket(s) con SLA en pausa")
             else:
                 st.info(f"ℹ️ {count} ticket(s) sin SLA asignado")
 
