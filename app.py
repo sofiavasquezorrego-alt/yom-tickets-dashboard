@@ -56,8 +56,16 @@ BASE_URL = f"https://{creds['domain']}/api/v2"
 AUTH = (creds['api_key'], 'X')
 
 
+class FreshdeskAuthError(Exception):
+    pass
+
+
 def api_get(endpoint, params=None):
     r = requests.get(f"{BASE_URL}{endpoint}", auth=AUTH, params=params, timeout=30)
+    if r.status_code == 401:
+        raise FreshdeskAuthError(
+            "Freshdesk rechazó la API key. Revisa el valor de freshdesk.apiKey en Streamlit Secrets."
+        )
     r.raise_for_status()
     return r.json()
 
@@ -78,6 +86,8 @@ def fetch_companies():
             if len(batch) < 100:
                 break
             page += 1
+        except FreshdeskAuthError:
+            raise
         except Exception:
             break
     return companies
@@ -108,6 +118,8 @@ def fetch_all_tickets():
             if len(batch) < 100:
                 break
             page += 1
+        except FreshdeskAuthError:
+            raise
         except Exception as e:
             st.warning(f"Error en página {page}: {e}")
             break
