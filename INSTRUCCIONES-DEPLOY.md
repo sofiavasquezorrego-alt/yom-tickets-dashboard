@@ -18,7 +18,7 @@
 ## 🚀 Paso 2: Ejecutar Script de Deploy
 
 ```bash
-cd /Users/svo/.openclaw/workspace/dashboard-streamlit
+cd /ruta/a/yom-tickets-dashboard
 ./setup-github.sh
 ```
 
@@ -46,7 +46,7 @@ Te pedirá:
 ```toml
 [freshdesk]
 domain = "yom1822574979840706786.freshdesk.com"
-apiKey = "UTphTYbUmmaaRZN3Xzl"
+apiKey = "TU_API_KEY_DE_FRESHDESK"
 ```
 
 6. Click "Deploy!"

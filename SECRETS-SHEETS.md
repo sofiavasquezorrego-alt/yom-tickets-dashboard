@@ -22,7 +22,7 @@ cat ~/.openclaw/credentials/gmail-oauth.json
 ```toml
 [freshdesk]
 domain = "yom1822574979840706786.freshdesk.com"
-apiKey = "UTphTYbUmmaaRZN3Xzl"
+apiKey = "TU_API_KEY_DE_FRESHDESK"
 
 [google_sheets]
 access_token = "VALOR_DE_sheets-tokens.json → access_token"
@@ -36,7 +36,7 @@ client_secret = "VALOR_DE_gmail-oauth.json → installed.client_secret"
 ```toml
 [freshdesk]
 domain = "yom1822574979840706786.freshdesk.com"
-apiKey = "UTphTYbUmmaaRZN3Xzl"
+apiKey = "TU_API_KEY_DE_FRESHDESK"
 
 [google_sheets]
 access_token = "ya29.a0AY..."

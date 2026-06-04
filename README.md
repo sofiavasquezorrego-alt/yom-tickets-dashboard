@@ -18,26 +18,18 @@ El dashboard se abrirá en `http://localhost:8501`
 
 1. Crear cuenta en https://streamlit.io/cloud
 2. Conectar tu repositorio GitHub
-3. Seleccionar `dashboard-streamlit/app.py`
+3. Seleccionar `app.py`
 4. Configurar secrets:
    - Ir a Settings → Secrets
    - Agregar:
      ```toml
      [freshdesk]
      domain = "yom1822574979840706786.freshdesk.com"
-     apiKey = "UTphTYbUmmaaRZN3Xzl"
+     apiKey = "TU_API_KEY_DE_FRESHDESK"
      ```
 5. Deploy automático
 
-**Nota:** En Streamlit Cloud, modificar `app.py` línea 21 para leer secrets:
-
-```python
-# Reemplazar load_credentials() con:
-creds = {
-    'domain': st.secrets['freshdesk']['domain'],
-    'apiKey': st.secrets['freshdesk']['apiKey']
-}
-```
+**Importante:** Nunca subas una API key real a GitHub. `app.py` ya lee estos valores desde los Secrets privados de Streamlit Cloud.
 
 ## 📈 KPIs Incluidos
 

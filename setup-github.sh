@@ -67,7 +67,7 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "[freshdesk]"
     echo "domain = \"yom1822574979840706786.freshdesk.com\""
-    echo "apiKey = \"UTphTYbUmmaaRZN3Xzl\""
+    echo "apiKey = \"TU_API_KEY_DE_FRESHDESK\""
     echo ""
     echo "6. Click 'Deploy!'"
     echo ""

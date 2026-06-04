@@ -9,7 +9,7 @@ cat << EOF
 
 [freshdesk]
 domain = "yom1822574979840706786.freshdesk.com"
-apiKey = "UTphTYbUmmaaRZN3Xzl"
+apiKey = "TU_API_KEY_DE_FRESHDESK"
 
 [google_sheets]
 access_token = "$(cat ~/.openclaw/credentials/sheets-tokens.json | jq -r '.access_token')"
