@@ -17,6 +17,13 @@ import streamlit.components.v1 as components
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 SLA_PAUSED_STATUSES = {3, 6}
+# Tickets excluidos del cálculo de % de SLA, con motivo documentado.
+# NO cuentan como cumplidos ni incumplidos: se sacan del numerador y del
+# denominador para no distorsionar la métrica por artefactos (ej. un ticket
+# reabierto por un 'gracias' del cliente que empuja la fecha de cierre).
+SLA_EXCEPTIONS = {
+    897: "Cumplido a tiempo (~9-jul 12:00); reabierto por 'gracias' del cliente que empujo el cierre al 14-jul. Incumplimiento espurio.",
+}
 
 SLA_COMPLIANCE_HELP = (
     "**SLA Compliance — rangos de referencia:**\n\n"
@@ -255,6 +262,11 @@ def build_dataframe(tickets, companies):
         return 'N/A'
 
     df['sla_status'] = df.apply(calc_sla, axis=1)
+
+    # Excepciones documentadas: se marcan aparte para que NO entren al % de SLA.
+    if SLA_EXCEPTIONS:
+        _exc_ids = {str(k) for k in SLA_EXCEPTIONS}
+        df.loc[df['id'].astype(str).isin(_exc_ids), 'sla_status'] = 'Excepción SLA'
 
     # Boolean for compliance calcs
     df['sla_met'] = df['sla_status'].map({
