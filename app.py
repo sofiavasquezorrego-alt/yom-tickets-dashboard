@@ -21,7 +21,7 @@ SLA_PAUSED_STATUSES = {3, 6}
 AUTO_REFRESH_MS = 600000
 FRESHDESK_CACHE_TTL_SECONDS = 900
 FRESHDESK_MAX_RETRIES = 4
-DASHBOARD_VERSION = "sla-overrides-v4"
+DASHBOARD_VERSION = "sla-overrides-v5"
 # Tickets excluidos del cálculo de % de SLA, con motivo documentado.
 # NO cuentan como cumplidos ni incumplidos: se sacan del numerador y del
 # denominador para no distorsionar la métrica por artefactos (ej. un ticket
@@ -305,9 +305,9 @@ def build_dataframe(tickets, companies):
         override = SLA_TICKET_OVERRIDES.get(int(row['id']))
 
         if override:
-            if is_open:
+            if is_open and 'open_status' in override:
                 return override['open_status']
-            if is_closed:
+            if is_closed and 'closed_status' in override:
                 return override['closed_status']
 
         if pd.isna(due):
@@ -602,6 +602,18 @@ with tab2:
             st.metric("Cerrados con SLA", len(sla_closed))
         with c5:
             st.metric("Cerrados sin datos SLA", len(closed_without_sla))
+
+        applied_overrides = df[
+            df['id'].astype(str).isin({str(ticket_id) for ticket_id in SLA_TICKET_OVERRIDES})
+        ][['id', 'subject', 'status_name', 'sla_status', 'sla_met', 'sla_note']].copy()
+        if not applied_overrides.empty:
+            st.subheader("Overrides SLA aplicados")
+            applied_overrides['sla_met'] = applied_overrides['sla_met'].map({
+                True: "Sí",
+                False: "No",
+            }).fillna("No aplica")
+            applied_overrides.columns = ['#', 'Asunto', 'Estado', 'SLA', 'Cuenta como cumplido', 'Nota']
+            st.dataframe(applied_overrides, use_container_width=True, hide_index=True)
 
         # By priority
         by_prio = sla_closed.groupby('priority_name').agg(
