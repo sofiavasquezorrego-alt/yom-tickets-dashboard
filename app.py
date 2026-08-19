@@ -21,7 +21,7 @@ SLA_PAUSED_STATUSES = {3, 6}
 AUTO_REFRESH_MS = 600000
 FRESHDESK_CACHE_TTL_SECONDS = 900
 FRESHDESK_MAX_RETRIES = 4
-DASHBOARD_VERSION = "sla-overrides-v3"
+DASHBOARD_VERSION = "sla-overrides-v4"
 # Tickets excluidos del cálculo de % de SLA, con motivo documentado.
 # NO cuentan como cumplidos ni incumplidos: se sacan del numerador y del
 # denominador para no distorsionar la métrica por artefactos (ej. un ticket
@@ -31,6 +31,16 @@ SLA_EXCEPTIONS = {
 }
 
 SLA_TICKET_OVERRIDES = {
+    881: {
+        "closed_status": "Resuelto a tiempo",
+        "closed_met": True,
+        "note": "Excepción manual: ticket validado como resuelto dentro de SLA.",
+    },
+    890: {
+        "closed_status": "Resuelto a tiempo",
+        "closed_met": True,
+        "note": "Excepción manual: ticket validado como resuelto dentro de SLA.",
+    },
     904: {
         "closed_status": "Resuelto a tiempo",
         "closed_met": True,
