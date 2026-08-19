@@ -25,6 +25,18 @@ SLA_EXCEPTIONS = {
     897: "Cumplido a tiempo (~9-jul 12:00); reabierto por 'gracias' del cliente que empujo el cierre al 14-jul. Incumplimiento espurio.",
 }
 
+SLA_TICKET_OVERRIDES = {
+    948: {
+        "open_status": "En pausa",
+        "closed_status": "Resuelto a tiempo",
+        "note": (
+            "Pausa manual: se solicitó información al cliente el mismo día, "
+            "pero Freshdesk no dejó el ticket en Esperando al cliente. "
+            "Al cierre, se considera resuelto dentro de SLA."
+        ),
+    },
+}
+
 SLA_COMPLIANCE_HELP = (
     "**SLA Compliance — rangos de referencia:**\n\n"
     "🔴 Bajo — menos de 80%\n\n"
@@ -238,6 +250,13 @@ def build_dataframe(tickets, companies):
         is_paused = row['status'] in SLA_PAUSED_STATUSES
         due = row['due_by']
         resolved = row['resolved_at']
+        override = SLA_TICKET_OVERRIDES.get(int(row['id']))
+
+        if override:
+            if is_open:
+                return override['open_status']
+            if is_closed:
+                return override['closed_status']
 
         if pd.isna(due):
             return 'Sin SLA'
@@ -262,6 +281,9 @@ def build_dataframe(tickets, companies):
         return 'N/A'
 
     df['sla_status'] = df.apply(calc_sla, axis=1)
+    df['sla_note'] = df['id'].apply(
+        lambda ticket_id: SLA_TICKET_OVERRIDES.get(int(ticket_id), {}).get('note', '')
+    )
 
     # Excepciones documentadas: se marcan aparte para que NO entren al % de SLA.
     if SLA_EXCEPTIONS:
@@ -505,18 +527,23 @@ with tab2:
     st.subheader("SLA Compliance — Tickets Cerrados")
 
     sla_closed = closed_df[closed_df['sla_met'].notna()]
+    closed_without_sla = closed_df[closed_df['sla_met'].isna()]
 
     if len(sla_closed) > 0:
         met = int(sla_closed['sla_met'].sum())
         not_met = len(sla_closed) - met
 
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
             st.metric("A tiempo", met)
         with c2:
             st.metric("Tarde", not_met)
         with c3:
             st.metric("Compliance", f"{met / len(sla_closed) * 100:.1f}%", help=SLA_COMPLIANCE_HELP)
+        with c4:
+            st.metric("Cerrados con SLA", len(sla_closed))
+        with c5:
+            st.metric("Cerrados sin datos SLA", len(closed_without_sla))
 
         # By priority
         by_prio = sla_closed.groupby('priority_name').agg(
@@ -559,6 +586,16 @@ with tab2:
             late_tickets['due_by'] = late_tickets['due_by'].dt.tz_convert(CHILE_TZ).dt.strftime('%d/%m %H:%M')
             late_tickets.columns = ['#', 'Asunto', 'Prioridad', 'Cliente', 'Creado', 'Resuelto', 'Vencía']
             st.dataframe(late_tickets, use_container_width=True, hide_index=True)
+
+        if not closed_without_sla.empty:
+            st.subheader("Tickets cerrados fuera del cálculo de SLA")
+            missing_sla = closed_without_sla[
+                ['id', 'subject', 'priority_name', 'client_name', 'status_name', 'sla_status', 'created_at', 'resolved_at', 'due_by']
+            ].copy()
+            for col in ['created_at', 'resolved_at', 'due_by']:
+                missing_sla[col] = missing_sla[col].dt.tz_convert(CHILE_TZ).dt.strftime('%d/%m %H:%M')
+            missing_sla.columns = ['#', 'Asunto', 'Prioridad', 'Cliente', 'Estado', 'Motivo', 'Creado', 'Resuelto', 'Vencía']
+            st.dataframe(missing_sla, use_container_width=True, hide_index=True)
     else:
         st.info("No hay tickets cerrados con datos de SLA en este período.")
 
@@ -591,6 +628,14 @@ with tab2:
             overdue['created_at'] = overdue['created_at'].dt.tz_convert(CHILE_TZ).dt.strftime('%d/%m %H:%M')
             overdue.columns = ['#', 'Asunto', 'Prioridad', 'Cliente', 'Estado', 'Vencía', 'Creado']
             st.dataframe(overdue, use_container_width=True, hide_index=True)
+
+        manual_paused = open_df[
+            (open_df['sla_status'] == 'En pausa') & (open_df['sla_note'] != '')
+        ][['id', 'subject', 'priority_name', 'client_name', 'status_name', 'sla_note']].copy()
+        if not manual_paused.empty:
+            st.subheader("Pausas manuales de SLA")
+            manual_paused.columns = ['#', 'Asunto', 'Prioridad', 'Cliente', 'Estado', 'Motivo']
+            st.dataframe(manual_paused, use_container_width=True, hide_index=True)
     else:
         st.success("No hay tickets abiertos en este período.")
 
@@ -642,7 +687,7 @@ with tab4:
     st.subheader("Lista de Tickets")
 
     cols = ['id', 'subject', 'priority_name', 'status_name',
-            'client_name', 'sla_status', 'created_at', 'updated_at']
+            'client_name', 'sla_status', 'sla_note', 'created_at', 'updated_at']
     cols = [c for c in cols if c in df.columns]
 
     detail = df[cols].copy()
@@ -652,7 +697,8 @@ with tab4:
     col_rename = {
         'id': '#', 'subject': 'Asunto', 'priority_name': 'Prioridad',
         'status_name': 'Estado', 'client_name': 'Cliente',
-        'sla_status': 'SLA', 'created_at': 'Creado', 'updated_at': 'Actualizado'
+        'sla_status': 'SLA', 'sla_note': 'Nota SLA',
+        'created_at': 'Creado', 'updated_at': 'Actualizado'
     }
     detail = detail.rename(columns={k: v for k, v in col_rename.items() if k in detail.columns})
 
