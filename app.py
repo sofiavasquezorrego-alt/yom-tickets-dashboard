@@ -21,6 +21,7 @@ SLA_PAUSED_STATUSES = {3, 6}
 AUTO_REFRESH_MS = 600000
 FRESHDESK_CACHE_TTL_SECONDS = 900
 FRESHDESK_MAX_RETRIES = 4
+DASHBOARD_VERSION = "sla-948-v2"
 # Tickets excluidos del cálculo de % de SLA, con motivo documentado.
 # NO cuentan como cumplidos ni incumplidos: se sacan del numerador y del
 # denominador para no distorsionar la métrica por artefactos (ej. un ticket
@@ -33,6 +34,7 @@ SLA_TICKET_OVERRIDES = {
     948: {
         "open_status": "En pausa",
         "closed_status": "Resuelto a tiempo",
+        "closed_met": True,
         "note": (
             "Pausa manual: se solicitó información al cliente el mismo día, "
             "pero Freshdesk no dejó el ticket en Esperando al cliente. "
@@ -330,6 +332,11 @@ def build_dataframe(tickets, companies):
         'Resuelto a tiempo': True,
         'Resuelto tarde': False
     })
+    for ticket_id, override in SLA_TICKET_OVERRIDES.items():
+        if 'closed_met' not in override:
+            continue
+        mask = (df['id'].astype(str) == str(ticket_id)) & (df['status'].isin([4, 5]))
+        df.loc[mask, 'sla_met'] = override['closed_met']
 
     # Subject (clean)
     if 'subject' in df.columns:
@@ -416,6 +423,7 @@ now_chile = datetime.now(CHILE_TZ)
 st.sidebar.markdown("---")
 st.sidebar.caption(f"{now_chile.strftime('%d/%m/%Y %H:%M')} Chile")
 st.sidebar.caption(f"{len(df)} tickets en período")
+st.sidebar.caption(f"Versión: {DASHBOARD_VERSION}")
 
 
 # ── Header ────────────────────────────────────────────────────
