@@ -16,6 +16,36 @@ import streamlit.components.v1 as components
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 
+DASHBOARD_VERSION = "sla-overrides-v5"
+
+SLA_TICKET_OVERRIDES = {
+    881: {
+        "closed_status": "Resuelto a tiempo",
+        "closed_met": True,
+        "note": "Excepción manual: ticket validado como resuelto dentro de SLA.",
+    },
+    890: {
+        "closed_status": "Resuelto a tiempo",
+        "closed_met": True,
+        "note": "Excepción manual: ticket validado como resuelto dentro de SLA.",
+    },
+    904: {
+        "closed_status": "Resuelto a tiempo",
+        "closed_met": True,
+        "note": "Excepción manual: ticket de julio validado como resuelto dentro de SLA.",
+    },
+    948: {
+        "open_status": "En pausa",
+        "closed_status": "Resuelto a tiempo",
+        "closed_met": True,
+        "note": (
+            "Pausa manual: se solicitó información al cliente el mismo día, "
+            "pero Freshdesk no dejó el ticket en Esperando al cliente. "
+            "Al cierre, se considera resuelto dentro de SLA."
+        ),
+    },
+}
+
 SLA_COMPLIANCE_HELP = (
     "**SLA Compliance — rangos de referencia:**\n\n"
     "🔴 Bajo — menos de 80%\n\n"
@@ -165,6 +195,13 @@ def build_dataframe(tickets, companies):
         is_closed = row['status'] in [4, 5]
         due = row['due_by']
         resolved = row['resolved_at']
+        override = SLA_TICKET_OVERRIDES.get(int(row['id']))
+
+        if override:
+            if is_open and 'open_status' in override:
+                return override['open_status']
+            if is_closed and 'closed_status' in override:
+                return override['closed_status']
 
         if pd.isna(due):
             return 'Sin SLA'
@@ -187,12 +224,20 @@ def build_dataframe(tickets, companies):
         return 'N/A'
 
     df['sla_status'] = df.apply(calc_sla, axis=1)
+    df['sla_note'] = df['id'].apply(
+        lambda ticket_id: SLA_TICKET_OVERRIDES.get(int(ticket_id), {}).get('note', '')
+    )
 
     # Boolean for compliance calcs
     df['sla_met'] = df['sla_status'].map({
         'Resuelto a tiempo': True,
         'Resuelto tarde': False
     })
+    for ticket_id, override in SLA_TICKET_OVERRIDES.items():
+        if 'closed_met' not in override:
+            continue
+        mask = (df['id'].astype(str) == str(ticket_id)) & (df['status'].isin([4, 5]))
+        df.loc[mask, 'sla_met'] = override['closed_met']
 
     # Subject (clean)
     if 'subject' in df.columns:
@@ -279,6 +324,7 @@ now_chile = datetime.now(CHILE_TZ)
 st.sidebar.markdown("---")
 st.sidebar.caption(f"{now_chile.strftime('%d/%m/%Y %H:%M')} Chile")
 st.sidebar.caption(f"{len(df)} tickets en período")
+st.sidebar.caption(f"Versión: {DASHBOARD_VERSION}")
 
 
 # ── Header ────────────────────────────────────────────────────
