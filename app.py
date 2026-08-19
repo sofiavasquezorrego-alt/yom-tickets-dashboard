@@ -11,12 +11,16 @@ from datetime import datetime, timedelta, timezone, date
 import requests
 import json
 import concurrent.futures
+import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import streamlit.components.v1 as components
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 SLA_PAUSED_STATUSES = {3, 6}
+AUTO_REFRESH_MS = 600000
+FRESHDESK_CACHE_TTL_SECONDS = 900
+FRESHDESK_MAX_RETRIES = 4
 # Tickets excluidos del cálculo de % de SLA, con motivo documentado.
 # NO cuentan como cumplidos ni incumplidos: se sacan del numerador y del
 # denominador para no distorsionar la métrica por artefactos (ej. un ticket
@@ -52,7 +56,7 @@ st.set_page_config(
 )
 
 components.html(
-    "<script>setTimeout(function(){window.parent.location.reload();}, 300000);</script>",
+    f"<script>setTimeout(function(){{window.parent.location.reload();}}, {AUTO_REFRESH_MS});</script>",
     height=0,
 )
 
@@ -79,18 +83,45 @@ class FreshdeskAuthError(Exception):
     pass
 
 
+class FreshdeskRateLimitError(Exception):
+    pass
+
+
+def retry_after_seconds(response, attempt):
+    retry_after = response.headers.get('Retry-After')
+    if retry_after:
+        try:
+            return min(max(int(retry_after), 1), 60)
+        except ValueError:
+            pass
+    return min(2 ** attempt, 30)
+
+
 def api_get(endpoint, params=None):
-    r = requests.get(f"{BASE_URL}{endpoint}", auth=AUTH, params=params, timeout=30)
-    if r.status_code == 401:
-        raise FreshdeskAuthError(
-            "Freshdesk rechazó la API key. Revisa el valor de freshdesk.apiKey en Streamlit Secrets."
-        )
-    r.raise_for_status()
-    return r.json()
+    for attempt in range(FRESHDESK_MAX_RETRIES + 1):
+        r = requests.get(f"{BASE_URL}{endpoint}", auth=AUTH, params=params, timeout=30)
+        if r.status_code == 401:
+            raise FreshdeskAuthError(
+                "Freshdesk rechazó la API key. Revisa el valor de freshdesk.apiKey en Streamlit Secrets."
+            )
+        if r.status_code == 429:
+            if attempt == FRESHDESK_MAX_RETRIES:
+                raise FreshdeskRateLimitError(
+                    "Freshdesk está limitando las consultas (429 Too Many Requests). "
+                    "Espera unos minutos y refresca el dashboard."
+                )
+            time.sleep(retry_after_seconds(r, attempt))
+            continue
+        r.raise_for_status()
+        return r.json()
+
+    raise FreshdeskRateLimitError(
+        "Freshdesk está limitando las consultas. Espera unos minutos y refresca el dashboard."
+    )
 
 
 # ── Data fetching ────────────────────────────────────────────
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=FRESHDESK_CACHE_TTL_SECONDS)
 def fetch_companies():
     """Return {company_id: company_name} dict."""
     companies = {}
@@ -112,7 +143,7 @@ def fetch_companies():
     return companies
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=FRESHDESK_CACHE_TTL_SECONDS)
 def fetch_all_tickets():
     """
     Fetch tickets updated in the last 180 days (with stats).
@@ -139,7 +170,11 @@ def fetch_all_tickets():
             page += 1
         except FreshdeskAuthError:
             raise
+        except FreshdeskRateLimitError:
+            raise
         except Exception as e:
+            if page == 1:
+                raise
             st.warning(f"Error en página {page}: {e}")
             break
     return all_tickets
