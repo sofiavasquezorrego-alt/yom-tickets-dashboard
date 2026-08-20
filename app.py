@@ -21,7 +21,7 @@ SLA_PAUSED_STATUSES = {3, 6}
 AUTO_REFRESH_MS = 600000
 FRESHDESK_CACHE_TTL_SECONDS = 900
 FRESHDESK_MAX_RETRIES = 4
-DASHBOARD_VERSION = "sla-overrides-v5"
+DASHBOARD_VERSION = "monthly-comparison-defaults-v6"
 # Tickets excluidos del cálculo de % de SLA, con motivo documentado.
 # NO cuentan como cumplidos ni incumplidos: se sacan del numerador y del
 # denominador para no distorsionar la métrica por artefactos (ej. un ticket
@@ -796,11 +796,10 @@ with tab5:
 
     mc_col_l, mc_col_r = st.columns(2)
     with mc_col_l:
-        mc_default_months = mc_month_options[-3:] if len(mc_month_options) >= 3 else mc_month_options
         mc_selected_months = st.multiselect(
             "Meses a comparar",
             mc_month_options,
-            default=mc_default_months,
+            default=mc_month_options,
             key="mc_months"
         )
     with mc_col_r:
@@ -809,7 +808,7 @@ with tab5:
         mc_selected_metrics = st.multiselect(
             "Métricas",
             mc_all_metrics,
-            default=mc_all_metrics,
+            default=['SLA Compliance %'],
             key="mc_metrics"
         )
 
