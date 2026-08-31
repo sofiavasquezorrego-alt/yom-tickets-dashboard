@@ -15,13 +15,14 @@ import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import streamlit.components.v1 as components
+from monthly_metrics import MONTH_NAMES_ES, build_monthly_comparison, month_names_until, year_start_cutoff
 
 CHILE_TZ = ZoneInfo("America/Santiago")
 SLA_PAUSED_STATUSES = {3, 6}
 AUTO_REFRESH_MS = 600000
 FRESHDESK_CACHE_TTL_SECONDS = 900
 FRESHDESK_MAX_RETRIES = 4
-DASHBOARD_VERSION = "monthly-comparison-defaults-v6"
+DASHBOARD_VERSION = "monthly-comparison-sla-fix-v7"
 # Tickets excluidos del cálculo de % de SLA, con motivo documentado.
 # NO cuentan como cumplidos ni incumplidos: se sacan del numerador y del
 # denominador para no distorsionar la métrica por artefactos (ej. un ticket
@@ -163,10 +164,11 @@ def fetch_companies():
 @st.cache_data(ttl=FRESHDESK_CACHE_TTL_SECONDS)
 def fetch_all_tickets():
     """
-    Fetch tickets updated in the last 180 days (with stats).
-    We filter by created_at client-side for accuracy.
+    Fetch current-year tickets (with stats).
+    Freshdesk only supports updated_since on this endpoint; using Jan 1 ensures
+    all tickets created this year are included because creation also updates them.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=180)).strftime('%Y-%m-%dT%H:%M:%SZ')
+    cutoff = year_start_cutoff(datetime.now(timezone.utc))
     all_tickets = []
     page = 1
     while page <= 30:
@@ -264,6 +266,12 @@ def build_dataframe(tickets, companies):
         lambda s: s.get('resolved_at') if isinstance(s, dict) else None
     )
     df['resolved_at'] = pd.to_datetime(df['resolved_at'], errors='coerce', utc=True)
+
+    # closed_at from stats, used as a fallback for monthly closed/SLA grouping
+    df['closed_at'] = df['stats'].apply(
+        lambda s: s.get('closed_at') if isinstance(s, dict) else None
+    )
+    df['closed_at'] = pd.to_datetime(df['closed_at'], errors='coerce', utc=True)
 
     # first_responded_at from stats
     df['first_responded_at'] = df['stats'].apply(
@@ -363,10 +371,8 @@ def build_dataframe(tickets, companies):
 # ── Sidebar: filters ─────────────────────────────────────────
 st.sidebar.header("Filtros")
 
-MONTH_NAMES_ES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-                  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 _today = date.today()
-_month_options = MONTH_NAMES_ES[:_today.month]
+_month_options = month_names_until(_today)
 
 date_option = st.sidebar.selectbox(
     "Período",
@@ -792,7 +798,7 @@ with tab5:
     st.caption("Independiente del filtro de período y filtros del sidebar.")
 
     mc_today = date.today()
-    mc_month_options = MONTH_NAMES_ES[:mc_today.month]
+    mc_month_options = month_names_until(mc_today)
 
     mc_col_l, mc_col_r = st.columns(2)
     with mc_col_l:
@@ -817,42 +823,9 @@ with tab5:
     elif not mc_selected_metrics:
         st.info("Selecciona al menos una métrica.")
     else:
-        mc_rows = []
-        for mc_month in mc_selected_months:
-            mc_month_num = MONTH_NAMES_ES.index(mc_month) + 1
-            mc_start = pd.Timestamp(date(mc_today.year, mc_month_num, 1), tz='UTC')
-            if mc_month_num == 12:
-                mc_end = pd.Timestamp(date(mc_today.year + 1, 1, 1), tz='UTC')
-            else:
-                mc_end = pd.Timestamp(date(mc_today.year, mc_month_num + 1, 1), tz='UTC')
-
-            mc_month_df = df_all[(df_all['created_at'] >= mc_start) &
-                                 (df_all['created_at'] < mc_end)]
-            mc_open = mc_month_df[~mc_month_df['status'].isin([4, 5])]
-            mc_closed = mc_month_df[mc_month_df['status'].isin([4, 5])]
-            mc_sla_data = mc_closed[mc_closed['sla_met'].notna()]
-
-            mc_row = {'Mes': mc_month}
-            if 'Total' in mc_selected_metrics:
-                mc_row['Total'] = len(mc_month_df)
-            if 'Abiertos' in mc_selected_metrics:
-                mc_row['Abiertos'] = len(mc_open)
-            if 'Cerrados' in mc_selected_metrics:
-                mc_row['Cerrados'] = len(mc_closed)
-            if 'SLA Vencido' in mc_selected_metrics:
-                mc_row['SLA Vencido'] = len(mc_open[mc_open['sla_status'] == 'Vencido'])
-            if 'Por Vencer' in mc_selected_metrics:
-                mc_row['Por Vencer'] = len(mc_open[mc_open['sla_status'] == 'Por vencer'])
-            if 'SLA Compliance %' in mc_selected_metrics:
-                if len(mc_sla_data) > 0:
-                    mc_row['SLA Compliance %'] = round(
-                        mc_sla_data['sla_met'].sum() / len(mc_sla_data) * 100, 1
-                    )
-                else:
-                    mc_row['SLA Compliance %'] = None
-            mc_rows.append(mc_row)
-
-        mc_table = pd.DataFrame(mc_rows)
+        mc_table = build_monthly_comparison(
+            df_all, mc_selected_months, mc_selected_metrics, mc_today, CHILE_TZ
+        )
         st.dataframe(
             mc_table, use_container_width=True, hide_index=True,
             column_config={
